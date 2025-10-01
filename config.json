@@ -1,0 +1,24 @@
+{
+  "proxmox": {
+    "url": "https://192.168.0.43:8006/",
+    "username": "root",
+    "password": "!HexWare"
+  },
+  "tinyFM": {
+    "url": "http://192.168.0.43:8080/index.php?",
+    "username": "admin",
+    "password": "admin@123"
+  },
+  "storage": {
+    "options": ["data", "nvme0n1"],
+    "default": "nvme0n1"
+  },
+  "format": {
+    "options": ["Raw disk image (raw)", "QEMU image format (qcow2)"],
+    "default": "Raw disk image (raw)"
+  },
+  "template": {
+    "vmId": 100,
+    "name": "VM 100"
+  }
+}

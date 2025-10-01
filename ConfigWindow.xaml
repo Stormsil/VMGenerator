@@ -1,0 +1,102 @@
+﻿<Window x:Class="VMGenerator.ConfigWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Configuration"
+        Background="#1E1E1E"
+        Width="500" Height="400"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize">
+
+    <Window.Resources>
+        <SolidColorBrush x:Key="Fg" Color="#DCDCDC"/>
+        <SolidColorBrush x:Key="Line" Color="#3C3F41"/>
+
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Fg}"/>
+            <Setter Property="Margin" Value="0,0,0,4"/>
+        </Style>
+
+        <Style TargetType="TextBox">
+            <Setter Property="Foreground" Value="{StaticResource Fg}"/>
+            <Setter Property="Background" Value="#2D2D2D"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="4,2"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+        </Style>
+
+        <Style TargetType="PasswordBox">
+            <Setter Property="Foreground" Value="{StaticResource Fg}"/>
+            <Setter Property="Background" Value="#2D2D2D"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="4,2"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+        </Style>
+
+        <Style TargetType="Button">
+            <Setter Property="Foreground" Value="{StaticResource Fg}"/>
+            <Setter Property="Background" Value="#3C3F41"/>
+            <Setter Property="BorderBrush" Value="#555"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="Margin" Value="6,0,0,0"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TabControl Grid.Row="0">
+            <TabItem Header="Proxmox">
+                <StackPanel Margin="10">
+                    <TextBlock Text="Proxmox URL:"/>
+                    <TextBox x:Name="ProxmoxUrlBox"/>
+
+                    <TextBlock Text="Username:"/>
+                    <TextBox x:Name="ProxmoxUserBox"/>
+
+                    <TextBlock Text="Password:"/>
+                    <PasswordBox x:Name="ProxmoxPassBox"/>
+                </StackPanel>
+            </TabItem>
+
+            <TabItem Header="TinyFM">
+                <StackPanel Margin="10">
+                    <TextBlock Text="TinyFM URL:"/>
+                    <TextBox x:Name="TinyUrlBox"/>
+
+                    <TextBlock Text="Username:"/>
+                    <TextBox x:Name="TinyUserBox"/>
+
+                    <TextBlock Text="Password:"/>
+                    <PasswordBox x:Name="TinyPassBox"/>
+                </StackPanel>
+            </TabItem>
+
+            <TabItem Header="Storage &amp; Format">
+                <StackPanel Margin="10">
+                    <TextBlock Text="Storage Options (comma separated):"/>
+                    <TextBox x:Name="StorageOptionsBox"/>
+
+                    <TextBlock Text="Default Storage:"/>
+                    <TextBox x:Name="StorageDefaultBox"/>
+
+                    <TextBlock Text="Format Options (comma separated):"/>
+                    <TextBox x:Name="FormatOptionsBox"/>
+
+                    <TextBlock Text="Default Format:"/>
+                    <TextBox x:Name="FormatDefaultBox"/>
+                </StackPanel>
+            </TabItem>
+        </TabControl>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+            <Button Content="OK" Click="BtnOK_Click" IsDefault="True" Background="#2E7D32"/>
+            <Button Content="Cancel" Click="BtnCancel_Click" IsCancel="True"/>
+        </StackPanel>
+    </Grid>
+</Window>
