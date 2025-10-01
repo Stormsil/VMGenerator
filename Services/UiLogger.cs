@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -11,12 +12,14 @@ namespace VMGenerator.Services
     public sealed class UiLogger
     {
         private readonly RichTextBox _box;
+        private readonly StringBuilder _fullLog = new StringBuilder();
 
         private static readonly Brush FG = new SolidColorBrush(Color.FromRgb(220, 220, 220));
         private static readonly Brush RED = new SolidColorBrush(Color.FromRgb(192, 57, 43));
         private static readonly Brush GREEN = new SolidColorBrush(Color.FromRgb(39, 174, 96));
         private static readonly Brush BLUE = new SolidColorBrush(Color.FromRgb(78, 161, 255));
         private static readonly Brush YELLOW = new SolidColorBrush(Color.FromRgb(255, 208, 70));
+        private static readonly Brush CYAN = new SolidColorBrush(Color.FromRgb(0, 255, 255));
         private static readonly Brush HDR_BG = new SolidColorBrush(Color.FromRgb(46, 46, 46));
         private static readonly Brush GRID = new SolidColorBrush(Color.FromRgb(80, 80, 80));
 
@@ -26,6 +29,8 @@ namespace VMGenerator.Services
             _box.Document ??= new FlowDocument();
             _box.Document.PagePadding = new Thickness(0);
         }
+
+        public string GetFullLog() => _fullLog.ToString();
 
         private void AddParagraph(IEnumerable<Inline> inlines)
         {
@@ -37,6 +42,10 @@ namespace VMGenerator.Services
 
         private void Line(string prefix, string text, Brush color)
         {
+            var timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
+            var logLine = $"[{timestamp}] {prefix}{text}";
+            _fullLog.AppendLine(logLine);
+
             AddParagraph(new Inline[]
             {
                 new Run(prefix){ Foreground = YELLOW },
@@ -48,11 +57,19 @@ namespace VMGenerator.Services
         public void Warn(string msg) => Line("[WARN] ", msg, YELLOW);
         public void Error(string msg) => Line("[ERROR] ", msg, RED);
         public void Step(string msg) => Line("> ", msg, BLUE);
+        public void Debug(string msg) => Line("[DEBUG] ", msg, CYAN);
 
         public void Table(string title, IEnumerable<(string Field, string Value)> rows)
         {
             var list = rows?.ToList() ?? new();
             if (list.Count == 0) return;
+
+            var timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
+            _fullLog.AppendLine($"[{timestamp}] • {title}");
+            foreach (var row in list)
+            {
+                _fullLog.AppendLine($"  {row.Field}: {row.Value}");
+            }
 
             AddParagraph(new Inline[]{
                 new Run("• "){Foreground = YELLOW},
@@ -95,6 +112,13 @@ namespace VMGenerator.Services
         {
             var items = (changes ?? Array.Empty<Change>()).Where(c => c != null).ToList();
             if (items.Count == 0) return;
+
+            var timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
+            _fullLog.AppendLine($"[{timestamp}] • {title}");
+            foreach (var item in items)
+            {
+                _fullLog.AppendLine($"  {item.Field}: {item.Old} → {item.New}");
+            }
 
             AddParagraph(new Inline[]
             {

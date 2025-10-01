@@ -10,6 +10,8 @@ namespace VMGenerator.Services
     public sealed class ProxmoxAutomation
     {
         private readonly UiLogger _log;
+        public bool DebugMode { get; set; } = false;
+
         public ProxmoxAutomation(UiLogger log) => _log = log;
 
         public int SlowMoMs { get; set; } = 800;
@@ -17,6 +19,50 @@ namespace VMGenerator.Services
             Task.Delay(ms ?? SlowMoMs, ct);
 
         private static string Js(string s) => JsonSerializer.Serialize(s);
+
+        private void DebugLog(WebView2 web, string message, object? data = null)
+        {
+            if (!DebugMode) return;
+
+            try
+            {
+                var timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
+                string dataStr = "";
+
+                if (data != null)
+                {
+                    try
+                    {
+                        dataStr = $" | Data: {JsonSerializer.Serialize(data)}";
+                    }
+                    catch
+                    {
+                        dataStr = $" | Data: {data}";
+                    }
+                }
+
+                // Логируем в UI (главное!)
+                _log.Debug($"{message}{dataStr}");
+
+                // Также логируем в консоль браузера (необязательно)
+                try
+                {
+                    var escapedMsg = Js(message);
+                    var escapedData = data != null ? Js(data.ToString() ?? "") : "null";
+
+                    web.ExecuteScriptAsync($@"
+console.log('%c[PROXMOX DEBUG {timestamp}]%c {escapedMsg}',
+    'color: #00ff00; font-weight: bold;',
+    'color: #ffffff;',
+    {escapedData});");
+                }
+                catch { }
+            }
+            catch (Exception ex)
+            {
+                _log.Warn($"DebugLog error: {ex.Message}");
+            }
+        }
 
         private static string FromJs(string raw)
         {
@@ -93,8 +139,6 @@ namespace VMGenerator.Services
 
                 if (isAlreadyOpen == "proxmox_interface")
                 {
-                    _log.Info("Proxmox интерфейс уже открыт, проверяю готовность...");
-
                     // Убедимся что дерево развернуто и VM 100 видна
                     await WaitForAsync(web, "document.querySelector('.x-tree-panel')", 10, ct);
                     await Task.Delay(400, ct);
@@ -125,29 +169,27 @@ namespace VMGenerator.Services
 
                     if (vm100Visible == "visible")
                     {
-                        _log.Info("VM 100 видна. Готов к клонированию.");
-                        return;
+                        return; // УЖЕ ГОТОВО! Выходим
                     }
                     else
                     {
-                        _log.Info("VM 100 не видна, раскрываю узел h1...");
-                        // Продолжаем с раскрытием узла h1
+                        // Продолжаем с раскрытием узла h1 ниже
+                        goto ExpandH1Node;
                     }
                 }
                 else if (isAlreadyOpen == "login_form")
                 {
-                    _log.Info("Форма логина найдена, продолжаю авторизацию...");
                     // Пропускаем навигацию, сразу к логину
+                    goto DoLogin;
                 }
                 else
                 {
-                    _log.Info("Неизвестная страница, перехожу к Proxmox...");
                     // Продолжаем с навигацией
                 }
             }
             catch (Exception ex)
             {
-                _log.Info($"Ошибка проверки состояния: {ex.Message}, продолжаю...");
+                DebugLog(web, $"Ошибка проверки состояния: {ex.Message}");
             }
 
             // Навигация к Proxmox если нужно (только если это не форма логина и не интерфейс)
@@ -166,7 +208,6 @@ namespace VMGenerator.Services
 
             if (currentState == "other_page" || currentState == "error")
             {
-                _log.Info("Открываю страницу…");
                 web.CoreWebView2.Navigate(url);
                 await Task.Delay(600, ct);
             }
@@ -191,12 +232,11 @@ namespace VMGenerator.Services
     return clicked ? 'clicked' : 'noop';
   }catch(e){ return 'err'; }
 })();"));
-                    if (res == "clicked") _log.Info("Нажал предупреждение безопасности (фолбэк).");
                 }
                 catch { }
             };
 
-            _log.Info("Жду форму логина…");
+        DoLogin:
             await WaitForAsync(web,
                 "document.querySelector('input[name=\"username\"]') && document.querySelector('input[name=\"password\"]')",
                 30, ct);
@@ -235,13 +275,13 @@ namespace VMGenerator.Services
   }}, 150);
   return 'login_action_scheduled';
 }})();";
-            _log.Info("Login action: " + FromJs(await web.ExecuteScriptAsync(loginJs)));
+            await web.ExecuteScriptAsync(loginJs);
             await Task.Delay(600, ct);
 
-            _log.Info("Жду интерфейс…");
             await WaitForAsync(web, "document.querySelector('.x-tree-panel')", 40, ct);
             await Task.Delay(400, ct);
 
+        ExpandH1Node:
             _log.Step("Раскрываю узел 'h1'…");
             string jsExpand = @"
 (() => {
@@ -280,7 +320,7 @@ namespace VMGenerator.Services
 
   return 'expand_scheduled';
 })();";
-            _log.Info(FromJs(await web.ExecuteScriptAsync(jsExpand)));
+            await web.ExecuteScriptAsync(jsExpand);
 
             await WaitForAsync(web, "window.__PX_H1==='expanded'", 20, ct);
 
@@ -288,15 +328,18 @@ namespace VMGenerator.Services
                 "Array.from(document.querySelectorAll('.x-tree-node-text')).some(e => (e.textContent||'').includes('100 (VM 100)'))",
                 30, ct);
 
-            _log.Info("VM 100 видна. Готово к клонированию.");
             await Task.Delay(400, ct);
         }
 
         public async Task<int?> CloneFromTemplate100Async(WebView2 web, string vmName, string storage, string _ignoreFormat, CancellationToken ct)
         {
+            DebugLog(web, "=== НАЧАЛО КЛОНИРОВАНИЯ ===", new { vmName, storage });
+
             await WaitForAsync(web, "document.querySelector('.x-tree-panel')", 20, ct);
 
             _log.Step("Открываю контекст-меню на '100 (VM 100)'…");
+            DebugLog(web, "Поиск VM 100 в дереве для контекстного меню");
+
             string openMenu = FromJs(await web.ExecuteScriptAsync(@"
 (()=>{
   const label = Array.from(document.querySelectorAll('.x-tree-node-text'))
@@ -307,7 +350,7 @@ namespace VMGenerator.Services
   cell.dispatchEvent(new MouseEvent('contextmenu', {bubbles:true,cancelable:true,clientX:r.left+16,clientY:r.top+10}));
   return 'ok';
 })();"));
-            _log.Info($"Context menu: {openMenu}");
+            DebugLog(web, "Результат открытия контекстного меню", openMenu);
             await Sleep(ct);
 
             _log.Step("Жму пункт Clone…");
@@ -324,13 +367,15 @@ namespace VMGenerator.Services
   let tries=0; const id=setInterval(()=>{ if(tryClick()||++tries>10) clearInterval(id); },150);
   return 'waiting';
 })();"));
-            _log.Info($"Menu Clone: {clickClone}");
+            DebugLog(web, "Результат клика по Clone в меню", clickClone);
             await Sleep(ct, 900);
 
             await WaitForAsync(web, "document.querySelector('input[name=\"name\"], input[data-componentid^=\"textfield-\"]')", 20, ct);
             await Sleep(ct);
 
             _log.Step("Заполняю Name / Storage / Format(raw)…");
+            DebugLog(web, "Заполнение формы клонирования", new { vmName, storage });
+
             string fillRes = FromJs(await web.ExecuteScriptAsync($@"
 (()=>{{
   const fireAll = (el) => {{ ['input','change','keyup','blur'].forEach(t => el.dispatchEvent(new Event(t,{{bubbles:true}}))); }};
@@ -383,7 +428,9 @@ namespace VMGenerator.Services
             ("Format now",  obj.GetProperty("formatNow").GetString() ?? ""),
         });
             }
-            catch { _log.Info("Filled: " + fillRes); }
+            catch { DebugLog(web, "Filled fallback", fillRes); }
+
+            DebugLog(web, "Результат заполнения формы", fillRes);
 
             await Sleep(ct, 800);
 
@@ -403,16 +450,21 @@ namespace VMGenerator.Services
   let tries=0; const id=setInterval(()=>{ if(tap()||++tries>10) clearInterval(id); },200);
   return 'waiting';
 })();"));
-            _log.Info($"Click Clone: {pressClone}");
-            await Sleep(ct, 1000);
+            DebugLog(web, "Результат нажатия кнопки Clone", pressClone);
 
-            // Ждем исчезновения диалога клонирования с более мягким условием
-            var dialogCloseTimeout = DateTime.UtcNow.AddSeconds(45);
-            bool dialogClosed = false;
+            // Попытка закрыть диалог нажатием Escape
+            DebugLog(web, "Попытка закрыть диалог через Escape");
+            await web.ExecuteScriptAsync(@"
+(() => {
+  try {
+    document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', keyCode: 27, which: 27, bubbles: true}));
+  } catch(e) {}
+})();");
 
-            while (DateTime.UtcNow < dialogCloseTimeout && !ct.IsCancellationRequested)
-            {
-                string dialogStatus = FromJs(await web.ExecuteScriptAsync(@"
+            await Sleep(ct, 1500);
+
+            // Проверяем закрылся ли диалог
+            string dialogStatus = FromJs(await web.ExecuteScriptAsync(@"
 (() => {
   try {
     const nameInput = document.querySelector('input[name=""name""], input[data-componentid^=""textfield-""]');
@@ -427,41 +479,48 @@ namespace VMGenerator.Services
   } catch(e) { return 'closed'; }
 })();"));
 
-                if (dialogStatus == "closed")
-                {
-                    dialogClosed = true;
-                    break;
-                }
+            DebugLog(web, "Статус диалога после Escape", dialogStatus);
 
-                await Task.Delay(500, ct);
-            }
-
-            if (!dialogClosed)
+            if (dialogStatus == "open")
             {
-                _log.Warn("Диалог клонирования не закрылся в ожидаемое время, продолжаем...");
+                DebugLog(web, "Диалог не закрылся, но это нормально - продолжаем");
             }
-            _log.Info($"Clone '{vmName}' отправлен.");
+            else
+            {
+                DebugLog(web, "Диалог закрыт");
+            }
+
             await Sleep(ct);
 
             // Ждем появления новой VM в дереве
-            _log.Info($"Ожидание появления VM '{vmName}' в дереве...");
+            DebugLog(web, "Начало поиска новой VM в дереве", vmName);
 
+            web.Focus();
             var timeoutEnd = DateTime.UtcNow.AddSeconds(60); // Увеличим таймаут
             int? foundVmId = null;
 
             while (DateTime.UtcNow < timeoutEnd && !ct.IsCancellationRequested)
             {
+                DebugLog(web, "Попытка обновления дерева Proxmox");
+
                 // Легкое обновление без полного перезагрузки дерева
                 await web.ExecuteScriptAsync(@"
 (() => {
   try {
-    if (window.Ext && Ext.ComponentQuery) {
-      const tree = Ext.ComponentQuery.query('treepanel')[0];
-      if (tree && tree.getView) {
-        tree.getView().refresh();
-      }
+    if (window.PVE && PVE.data && PVE.data.resourceTree && PVE.data.resourceTree.reload) {
+        console.log('%c[DEBUG] Вызов PVE.data.resourceTree.reload()', 'color: #ffff00;');
+        PVE.data.resourceTree.reload();
+    } else {
+        console.warn('[DEBUG] PVE.data.resourceTree недоступен:', {
+            hasPVE: !!window.PVE,
+            hasData: !!(window.PVE && window.PVE.data),
+            hasResourceTree: !!(window.PVE && window.PVE.data && window.PVE.data.resourceTree),
+            hasReload: !!(window.PVE && window.PVE.data && window.PVE.data.resourceTree && window.PVE.data.resourceTree.reload)
+        });
     }
-  } catch(e) {}
+  } catch(e) {
+    console.error('Failed to reload Proxmox resource tree:', e);
+  }
 })();");
 
                 await Task.Delay(1000, ct); // Подождем обновления
@@ -471,30 +530,52 @@ namespace VMGenerator.Services
   try {{
     const nameToFind = {Js(vmName)};
     const nodes = Array.from(document.querySelectorAll('.x-tree-node-text'));
+    console.log('%c[DEBUG] Поиск VM в дереве. Всего узлов:', 'color: #00ffff;', nodes.length);
+
+    const allTexts = nodes.map(n => n.textContent).filter(t => t && t.trim());
+    console.log('%c[DEBUG] Все тексты узлов:', 'color: #00ffff;', allTexts);
+
     for (const node of nodes) {{
       const text = node.textContent || '';
-      if (text.includes(nameToFind) && text.includes('VM')) {{
+      console.log('%c[DEBUG] Проверяю узел:', 'color: #00ffff;', text);
+
+      // Ищем VM по имени в скобках, например: ""112 (WoW12)""
+      if (text.includes(nameToFind)) {{
+        console.log('%c[DEBUG] Найдено совпадение по имени!', 'color: #ffff00;', text);
         const match = text.match(/(\d+)\s*\(/);
-        if (match) return match[1];
+        if (match) {{
+          console.log('%c[DEBUG] НАЙДЕНА VM!', 'color: #00ff00; font-size: 16px;', {{ text, vmId: match[1] }});
+          return match[1];
+        }} else {{
+          console.log('%c[DEBUG] Имя найдено, но не удалось извлечь ID', 'color: #ff9900;', text);
+        }}
       }}
     }}
+    console.log('%c[DEBUG] VM не найдена. Искали:', 'color: #ff9900;', nameToFind);
     return '';
-  }} catch(e) {{ return ''; }}
+  }} catch(e) {{
+    console.error('[DEBUG] Ошибка поиска VM:', e);
+    return '';
+  }}
 }})();"));
+
+                DebugLog(web, "Результат поиска VM", vmIdJs);
 
                 if (int.TryParse(vmIdJs, out int vmId))
                 {
                     foundVmId = vmId;
-                    _log.Info($"Найден ID новой VM: {vmId}");
+                    DebugLog(web, "✓ VM НАЙДЕНА", vmId);
                     break;
                 }
 
-                _log.Info($"VM '{vmName}' еще не появилась в дереве, ждем...");
+                DebugLog(web, "VM пока не найдена, продолжаем ждать");
                 await Task.Delay(2000, ct); // Подождем еще 2 секунды
             }
 
             if (foundVmId.HasValue)
             {
+                DebugLog(web, "Активация новой VM контекстным меню", foundVmId.Value);
+
                 // Дополнительная проверка - кликнем правой кнопкой на новую VM чтобы "активировать" ее
                 await web.ExecuteScriptAsync($@"
 (() => {{
@@ -512,14 +593,18 @@ namespace VMGenerator.Services
         document.dispatchEvent(new MouseEvent('click', {{bubbles:true,cancelable:true,clientX:0,clientY:0}}));
       }}, 100);
     }}
-  }} catch(e) {{}}
+  }} catch(e) {{
+    console.error('[DEBUG] Ошибка при активации VM:', e);
+  }}
 }})();");
 
                 await Task.Delay(500, ct); // Небольшая пауза
+                DebugLog(web, "=== КЛОНИРОВАНИЕ ЗАВЕРШЕНО УСПЕШНО ===", foundVmId.Value);
                 return foundVmId.Value;
             }
 
             _log.Warn($"VM '{vmName}' не найдена в дереве после клонирования.");
+            DebugLog(web, "ОШИБКА: VM не найдена после таймаута", vmName);
             return null;
         }
     }

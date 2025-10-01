@@ -6,10 +6,12 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
-  </PropertyGroup>
-
-  <PropertyGroup>
-    <DefaultItemExcludes>$(DefaultItemExcludes);VMHWGenEditor\**;ProxmoxCloner\**</DefaultItemExcludes>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
   </PropertyGroup>
 
   <ItemGroup>
@@ -18,18 +20,15 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Assets\Generators\*.exe" />
+    <EmbeddedResource Include="config.json" />
   </ItemGroup>
 
   <ItemGroup>
-    <Resource Include="VMHWGenEditor\VMHWGenEditor\Assets\app.ico">
-      <Link>Assets\app.ico</Link>
-    </Resource>
+    <None Remove="Assets\app.ico" />
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="config.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
+    <Resource Include="Assets\app.ico" />
   </ItemGroup>
 
 </Project>

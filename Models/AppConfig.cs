@@ -1,4 +1,5 @@
 using System.IO;
+using System.Reflection;
 using System.Text.Json;
 
 namespace VMGenerator.Models
@@ -10,20 +11,63 @@ namespace VMGenerator.Models
         public StorageConfig Storage { get; set; } = new();
         public FormatConfig Format { get; set; } = new();
         public TemplateConfig Template { get; set; } = new();
+        public bool DebugMode { get; set; } = false;
 
-        public static AppConfig Load(string filePath = "config.json")
+        private static string GetConfigPath()
+        {
+            // Путь к .vmgenerator рядом с exe
+            string exeDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? Directory.GetCurrentDirectory();
+            return Path.Combine(exeDir, ".vmgenerator");
+        }
+
+        private static string LoadEmbeddedDefaultConfig()
         {
             try
             {
-                if (!File.Exists(filePath))
+                var assembly = Assembly.GetExecutingAssembly();
+                var resourceName = "VMGenerator.config.json";
+
+                using var stream = assembly.GetManifestResourceStream(resourceName);
+                if (stream != null)
                 {
-                    var defaultConfig = new AppConfig();
-                    defaultConfig.Save(filePath);
-                    return defaultConfig;
+                    using var reader = new StreamReader(stream);
+                    return reader.ReadToEnd();
+                }
+            }
+            catch { }
+
+            // Fallback: создаем дефолтный конфиг программно
+            var defaultConfig = new AppConfig();
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            return JsonSerializer.Serialize(defaultConfig, options);
+        }
+
+        public static AppConfig Load()
+        {
+            string configPath = GetConfigPath();
+
+            try
+            {
+                // Если конфиг существует - загружаем его
+                if (File.Exists(configPath))
+                {
+                    string json = File.ReadAllText(configPath);
+                    var options = new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    };
+                    return JsonSerializer.Deserialize<AppConfig>(json, options) ?? new AppConfig();
                 }
 
-                string json = File.ReadAllText(filePath);
-                return JsonSerializer.Deserialize<AppConfig>(json) ?? new AppConfig();
+                // Если конфига нет - загружаем дефолтный из ресурсов и сохраняем
+                string defaultJson = LoadEmbeddedDefaultConfig();
+                File.WriteAllText(configPath, defaultJson);
+
+                var defaultOptions = new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                };
+                return JsonSerializer.Deserialize<AppConfig>(defaultJson, defaultOptions) ?? new AppConfig();
             }
             catch
             {
@@ -31,13 +75,14 @@ namespace VMGenerator.Models
             }
         }
 
-        public void Save(string filePath = "config.json")
+        public void Save()
         {
             try
             {
+                string configPath = GetConfigPath();
                 var options = new JsonSerializerOptions { WriteIndented = true };
                 string json = JsonSerializer.Serialize(this, options);
-                File.WriteAllText(filePath, json);
+                File.WriteAllText(configPath, json);
             }
             catch { }
         }

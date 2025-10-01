@@ -30,6 +30,8 @@ namespace VMGenerator
 
             FormatOptionsBox.Text = string.Join(", ", Config.Format.Options);
             FormatDefaultBox.Text = Config.Format.Default;
+
+            DebugModeCheckBox.IsChecked = Config.DebugMode;
         }
 
         private void BtnOK_Click(object sender, RoutedEventArgs e)
@@ -49,6 +51,8 @@ namespace VMGenerator
             Config.Format.Options = FormatOptionsBox.Text.Split(',')
                 .Select(s => s.Trim()).Where(s => !string.IsNullOrEmpty(s)).ToArray();
             Config.Format.Default = FormatDefaultBox.Text.Trim();
+
+            Config.DebugMode = DebugModeCheckBox.IsChecked == true;
 
             DialogResult = true;
         }

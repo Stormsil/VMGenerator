@@ -59,6 +59,14 @@ namespace VMGenerator
             _config = AppConfig.Load();
             StorageOptions = _config.Storage.Options;
             FormatOptions = _config.Format.Options;
+
+            // Активируем режим отладки если включен в конфиге
+            _proxmox.DebugMode = _config.DebugMode;
+
+            if (_config.DebugMode)
+            {
+                _log.Info("🐛 Режим отладки включен.");
+            }
         }
 
         private void InitializeQueue()
@@ -84,6 +92,9 @@ namespace VMGenerator
 
                 await Browser.EnsureCoreWebView2Async(env);
                 Status("Готово", UiState.Ready);
+
+                // Автоматический логин в Proxmox при запуске
+                await AutoConnectToProxmoxAsync();
             }
             catch (Exception ex)
             {
@@ -91,9 +102,23 @@ namespace VMGenerator
             }
         }
 
-        private void ModeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private async Task AutoConnectToProxmoxAsync()
         {
-            // Можно добавить логику изменения интерфейса в зависимости от режима
+            try
+            {
+                Status("Подключение к Proxmox…", UiState.Working);
+
+                var cts = new CancellationTokenSource();
+                await _proxmox.ConnectAndPrepareAsync(Browser, _config.Proxmox.Url,
+                    _config.Proxmox.Username, _config.Proxmox.Password, cts.Token);
+
+                Status("Proxmox подключён", UiState.Success);
+            }
+            catch (Exception ex)
+            {
+                _log.Warn($"Не удалось подключиться к Proxmox: {ex.Message}");
+                Status("Готово (без Proxmox)", UiState.Ready);
+            }
         }
 
         private void BtnConfig_Click(object sender, RoutedEventArgs e)
@@ -105,7 +130,13 @@ namespace VMGenerator
                 _config.Save();
                 StorageOptions = _config.Storage.Options;
                 FormatOptions = _config.Format.Options;
-                _log.Info("Конфигурация обновлена.");
+
+                // Обновляем режим отладки
+                _proxmox.DebugMode = _config.DebugMode;
+                if (_config.DebugMode)
+                {
+                    _log.Info("🐛 Режим отладки включен.");
+                }
             }
         }
 
@@ -113,7 +144,6 @@ namespace VMGenerator
         {
             if (_cts != null) return;
 
-            var selectedMode = ((ComboBoxItem)ModeCombo.SelectedItem)?.Tag?.ToString() ?? "both";
             var emptyItems = Queue.Where(x => string.IsNullOrWhiteSpace(x.Name)).ToList();
 
             if (emptyItems.Any())
@@ -135,24 +165,16 @@ namespace VMGenerator
 
             try
             {
-                switch (selectedMode)
-                {
-                    case "clone":
-                        await ProcessCloneOnlyAsync();
-                        break;
-                    case "configure":
-                        await ProcessConfigureOnlyAsync();
-                        break;
-                    case "both":
-                        await ProcessBothAsync();
-                        break;
-                }
+                // Всегда выполняем Clone + Configure
+                await ProcessBothAsync();
 
-                Status("Все задачи выполнены", UiState.Success);
+                Status("✓ Все задачи выполнены успешно", UiState.Success);
+                _log.Info("========== РАБОТА ЗАВЕРШЕНА ==========");
             }
             catch (OperationCanceledException)
             {
                 Status("Остановлено", UiState.Error);
+                _log.Warn("Работа остановлена пользователем");
             }
             catch (Exception ex)
             {
@@ -167,6 +189,9 @@ namespace VMGenerator
                 BtnStop.IsEnabled = false;
                 BtnAdd.IsEnabled = true;
                 CurrentOpText.Text = "";
+
+                // Автоматический сброс браузера после завершения работы
+                _ = ResetBrowserAsync();
             }
         }
 
@@ -223,8 +248,6 @@ namespace VMGenerator
             var withoutIds = toConfig.Where(x => !x.VmId.HasValue).ToList();
             if (withoutIds.Any())
             {
-                _log.Info($"Попытка найти ID для {withoutIds.Count} VM в Proxmox...");
-
                 foreach (var item in withoutIds)
                 {
                     try
@@ -248,7 +271,6 @@ namespace VMGenerator
                         if (int.TryParse(vmIdJs, out int vmId))
                         {
                             item.VmId = vmId;
-                            _log.Info($"Найден ID {vmId} для VM '{item.Name}'");
                         }
                     }
                     catch (Exception ex)
@@ -297,13 +319,11 @@ namespace VMGenerator
                         attempt++;
                         try
                         {
-                            _log.Info($"VM {vmId}: попытка {attempt} чтения конфига...");
                             cfg = await _tinyFM.OpenAndReadConfigAsync(Browser, vmId, _cts.Token);
 
                             // Проверим что конфиг не пустой и содержит разумные данные
                             if (!string.IsNullOrWhiteSpace(cfg) && cfg.Length > 50)
                             {
-                                _log.Info($"VM {vmId}: конфиг успешно прочитан ({cfg.Length} символов)");
                                 break;
                             }
                             else
@@ -361,7 +381,6 @@ namespace VMGenerator
 
             if (_cts.Token.IsCancellationRequested) return;
 
-            _log.Info("Ожидание готовности VM для конфигурирования...");
             await Task.Delay(5000, _cts.Token); // Увеличенная пауза между этапами
             await ProcessConfigureOnlyAsync();
         }
@@ -459,28 +478,38 @@ namespace VMGenerator
         private void BtnClear_Click(object sender, RoutedEventArgs e)
         {
             Queue.Clear();
-            _log.Info("Очередь очищена.");
         }
 
-        private async void BtnReset_Click(object sender, RoutedEventArgs e)
+        private async Task ResetBrowserAsync()
         {
             try
             {
-                _log.Info("Принудительный сброс браузера...");
                 Status("Сброс браузера...", UiState.Working);
 
                 // Останавливаем текущие операции
                 _cts?.Cancel();
+                _cts?.Dispose();
+                _cts = null;
 
-                // Очищаем браузер
+                // Полный сброс WebView2
                 if (Browser.CoreWebView2 != null)
                 {
+                    // Очищаем cookies и кеш
                     await Browser.CoreWebView2.ExecuteScriptAsync("window.location.href = 'about:blank';");
-                    await Task.Delay(1000);
+                    await Task.Delay(500);
+
+                    // Очищаем профиль
+                    try
+                    {
+                        await Browser.CoreWebView2.Profile.ClearBrowsingDataAsync();
+                    }
+                    catch { }
+
+                    await Task.Delay(500);
                 }
 
-                _log.Info("Браузер сброшен. Готов к новой работе.");
-                Status("Готово", UiState.Ready);
+                // Переподключаемся к Proxmox
+                await AutoConnectToProxmoxAsync();
             }
             catch (Exception ex)
             {
@@ -489,8 +518,51 @@ namespace VMGenerator
             }
         }
 
+        private async void BtnReset_Click(object sender, RoutedEventArgs e)
+        {
+            await ResetBrowserAsync();
+        }
+
+        private void BtnCopyLog_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var fullLog = _log.GetFullLog();
+                if (string.IsNullOrEmpty(fullLog))
+                {
+                    _log.Warn("Лог пуст, нечего копировать.");
+                    return;
+                }
+
+                Clipboard.SetText(fullLog);
+                _log.Info($"✓ Лог скопирован в буфер обмена ({fullLog.Length} символов)");
+            }
+            catch (Exception ex)
+            {
+                _log.Error($"Ошибка копирования лога: {ex.Message}");
+            }
+        }
+
         private void Window_KeyDown(object sender, KeyEventArgs e)
         {
+            // F-key hotkeys
+            if (e.Key == Key.F5)
+            {
+                BtnStart_Click(this, new RoutedEventArgs());
+                e.Handled = true;
+            }
+            else if (e.Key == Key.F6)
+            {
+                BtnStop_Click(this, new RoutedEventArgs());
+                e.Handled = true;
+            }
+            else if (e.Key == Key.F7)
+            {
+                BtnReset_Click(this, new RoutedEventArgs());
+                e.Handled = true;
+            }
+
+            // Ctrl+key hotkeys
             if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.S)
                 BtnStart_Click(this, new RoutedEventArgs());
             if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.E)
@@ -499,6 +571,8 @@ namespace VMGenerator
                 BtnAdd_Click(this, new RoutedEventArgs());
             if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.R)
                 BtnReset_Click(this, new RoutedEventArgs());
+            if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.L)
+                BtnCopyLog_Click(this, new RoutedEventArgs());
         }
     }
 }

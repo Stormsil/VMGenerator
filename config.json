@@ -20,5 +20,6 @@
   "template": {
     "vmId": 100,
     "name": "VM 100"
-  }
+  },
+  "debugMode": true
 }
