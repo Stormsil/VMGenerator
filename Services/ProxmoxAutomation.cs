@@ -1,5 +1,5 @@
+using Microsoft.UI.Xaml.Controls;
 using Microsoft.Web.WebView2.Core;
-using Microsoft.Web.WebView2.Wpf;
 using System;
 using System.Text.Json;
 using System.Threading;
@@ -97,6 +97,20 @@ console.log('%c[PROXMOX DEBUG {timestamp}]%c {escapedMsg}',
         public async Task ConnectAndPrepareAsync(WebView2 web, string url, string user, string pass, CancellationToken ct)
         {
             await EnsureCoreAsync(web);
+
+            // FORCEFULLY kill "Leave site?" dialogs by overriding addEventListener for 'beforeunload'
+            string antiDialogScript = @"
+                window.onbeforeunload = null;
+                const originalAddEventListener = window.addEventListener;
+                window.addEventListener = function(type, listener, options) {
+                    if (type === 'beforeunload') {
+                        console.log('Blocked beforeunload listener attempt');
+                        return;
+                    }
+                    return originalAddEventListener.call(window, type, listener, options);
+                };
+            ";
+            await web.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(antiDialogScript);
 
             var host = new Uri(url).Host;
             web.CoreWebView2.ServerCertificateErrorDetected += (s, e) =>
@@ -495,7 +509,7 @@ console.log('%c[PROXMOX DEBUG {timestamp}]%c {escapedMsg}',
             // Ждем появления новой VM в дереве
             DebugLog(web, "Начало поиска новой VM в дереве", vmName);
 
-            web.Focus();
+            web.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
             var timeoutEnd = DateTime.UtcNow.AddSeconds(60); // Увеличим таймаут
             int? foundVmId = null;
 

@@ -1,462 +1,248 @@
 ﻿<Window x:Class="VMGenerator.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
-        Title="VM Generator - Clone &amp; Configure"
-        Icon="Assets/app.ico"
-        Background="#1a1a1a"
-        WindowStartupLocation="CenterScreen"
-        WindowState="Maximized"
-        UseLayoutRounding="True"
-        SnapsToDevicePixels="True"
-        Loaded="Window_Loaded"
-        KeyDown="Window_KeyDown">
+        Title="VM Generator - Clone &amp; Configure">
 
-    <Window.Resources>
-        <SolidColorBrush x:Key="Fg" Color="#E0E0E0"/>
-        <SolidColorBrush x:Key="FgDim" Color="#8B8B8B"/>
-        <SolidColorBrush x:Key="BgDark" Color="#1a1a1a"/>
-        <SolidColorBrush x:Key="BgPanel" Color="#262626"/>
-        <SolidColorBrush x:Key="BgInput" Color="#2e2e2e"/>
-        <SolidColorBrush x:Key="Border" Color="#404040"/>
-        <SolidColorBrush x:Key="Accent" Color="#5c9fd6"/>
-        <SolidColorBrush x:Key="Success" Color="#4caf50"/>
-        <SolidColorBrush x:Key="Danger" Color="#f44336"/>
-        <SolidColorBrush x:Key="Warning" Color="#ff9800"/>
+    <Grid x:Name="RootGrid" Loaded="Window_Loaded" KeyDown="Window_KeyDown" Background="#2B2B2B">
+        <Grid.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Default">
+                    <SolidColorBrush x:Key="Success" Color="#4caf50"/>
+                        <SolidColorBrush x:Key="ProxmoxGray" Color="#262626"/>
+                    <SolidColorBrush x:Key="ProxmoxDarkGray" Color="#2B2B2B"/>
+                    <SolidColorBrush x:Key="ProxmoxBlue" Color="#5294E2"/>
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
 
-        <!-- Button Style -->
-        <Style TargetType="Button">
-            <Setter Property="Foreground" Value="{StaticResource Fg}"/>
-            <Setter Property="Background" Value="#404040"/>
-            <Setter Property="BorderBrush" Value="#555555"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="14,6"/>
-            <Setter Property="Margin" Value="6,0,0,0"/>
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="border"
-                                Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="3"
-                                SnapsToDevicePixels="true">
-                            <ContentPresenter x:Name="contentPresenter"
-                                            Margin="{TemplateBinding Padding}"
-                                            HorizontalAlignment="Center"
-                                            VerticalAlignment="Center"
-                                            Focusable="False"
-                                            RecognizesAccessKey="True"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#505050"/>
-                                <Setter TargetName="border" Property="BorderBrush" Value="#606060"/>
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#353535"/>
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Opacity" Value="0.4"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
+            <!-- Proxmox-style button -->
+            <Style x:Key="ProxmoxButton" TargetType="Button">
+                <Setter Property="Background" Value="#505050"/>
+                <Setter Property="Foreground" Value="#E0E0E0"/>
+                <Setter Property="BorderBrush" Value="#666666"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="Padding" Value="12,6"/>
+                <Setter Property="CornerRadius" Value="3"/>
+            </Style>
 
-        <!-- TextBox Style -->
-        <Style TargetType="TextBox">
-            <Setter Property="Foreground" Value="{StaticResource Fg}"/>
-            <Setter Property="Background" Value="{StaticResource BgInput}"/>
-            <Setter Property="BorderBrush" Value="{StaticResource Border}"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="6,4"/>
-            <Setter Property="CaretBrush" Value="{StaticResource Accent}"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="TextBox">
-                        <Border x:Name="border"
-                                Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="2"
-                                SnapsToDevicePixels="True">
-                            <ScrollViewer x:Name="PART_ContentHost" Focusable="false"
-                                        HorizontalScrollBarVisibility="Hidden"
-                                        VerticalScrollBarVisibility="Hidden"
-                                        Margin="{TemplateBinding Padding}"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="BorderBrush" Value="#5c9fd6"/>
-                            </Trigger>
-                            <Trigger Property="IsFocused" Value="True">
-                                <Setter TargetName="border" Property="BorderBrush" Value="#5c9fd6"/>
-                                <Setter TargetName="border" Property="Background" Value="#323232"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
+            <!-- Proxmox-style accent button (blue) -->
+            <Style x:Key="ProxmoxAccentButton" TargetType="Button">
+                    <Setter Property="Background" Value="#e26d00"/>
+                <Setter Property="Foreground" Value="White"/>
+                    <Setter Property="BorderBrush" Value="#e26d00"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="Padding" Value="12,6"/>
+                <Setter Property="CornerRadius" Value="3"/>
+            </Style>
+        </ResourceDictionary>
+        </Grid.Resources>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
 
-        <!-- PasswordBox Style -->
-        <Style TargetType="PasswordBox">
-            <Setter Property="Foreground" Value="{StaticResource Fg}"/>
-            <Setter Property="Background" Value="{StaticResource BgInput}"/>
-            <Setter Property="BorderBrush" Value="{StaticResource Border}"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="6,4"/>
-            <Setter Property="CaretBrush" Value="{StaticResource Accent}"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="PasswordBox">
-                        <Border x:Name="border"
-                                Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="2"
-                                SnapsToDevicePixels="True">
-                            <ScrollViewer x:Name="PART_ContentHost" Focusable="false"
-                                        HorizontalScrollBarVisibility="Hidden"
-                                        VerticalScrollBarVisibility="Hidden"
-                                        Margin="{TemplateBinding Padding}"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="BorderBrush" Value="#5c9fd6"/>
-                            </Trigger>
-                            <Trigger Property="IsFocused" Value="True">
-                                <Setter TargetName="border" Property="BorderBrush" Value="#5c9fd6"/>
-                                <Setter TargetName="border" Property="Background" Value="#323232"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <!-- ComboBox Style -->
-        <Style TargetType="ComboBox">
-            <Setter Property="Foreground" Value="{StaticResource Fg}"/>
-            <Setter Property="Background" Value="{StaticResource BgInput}"/>
-            <Setter Property="BorderBrush" Value="{StaticResource Border}"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="6,4"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ComboBox">
-                        <Grid>
-                            <Border x:Name="templateRoot"
-                                    Background="{TemplateBinding Background}"
-                                    BorderBrush="{TemplateBinding BorderBrush}"
-                                    BorderThickness="{TemplateBinding BorderThickness}"
-                                    CornerRadius="2"
-                                    SnapsToDevicePixels="true">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="0" MinWidth="{DynamicResource {x:Static SystemParameters.VerticalScrollBarWidthKey}}"/>
-                                    </Grid.ColumnDefinitions>
-                                    <ContentPresenter x:Name="contentPresenter"
-                                                      Grid.Column="0"
-                                                      Content="{TemplateBinding SelectionBoxItem}"
-                                                      ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
-                                                      ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
-                                                      HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                                      VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
-                                                      Margin="{TemplateBinding Padding}"
-                                                      IsHitTestVisible="false"
-                                                      SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}"
-                                                      TextBlock.Foreground="{StaticResource Fg}"/>
-                                    <ToggleButton x:Name="toggleButton"
-                                                  Grid.ColumnSpan="2"
-                                                  Background="Transparent"
-                                                  BorderBrush="Transparent"
-                                                  BorderThickness="0"
-                                                  IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
-                                                  Focusable="false"
-                                                  ClickMode="Press">
-                                        <ToggleButton.Template>
-                                            <ControlTemplate TargetType="ToggleButton">
-                                                <Border Background="Transparent">
-                                                    <Grid>
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="*"/>
-                                                            <ColumnDefinition Width="20"/>
-                                                        </Grid.ColumnDefinitions>
-                                                        <Path x:Name="arrow"
-                                                              Grid.Column="1"
-                                                              Data="M0,0 L4,4 L8,0 Z"
-                                                              Fill="{StaticResource Fg}"
-                                                              HorizontalAlignment="Center"
-                                                              VerticalAlignment="Center"/>
-                                                    </Grid>
-                                                </Border>
-                                            </ControlTemplate>
-                                        </ToggleButton.Template>
-                                    </ToggleButton>
-                                </Grid>
-                            </Border>
-                            <Popup x:Name="PART_Popup"
-                                   Placement="Bottom"
-                                   IsOpen="{TemplateBinding IsDropDownOpen}"
-                                   AllowsTransparency="true"
-                                   Focusable="false"
-                                   PopupAnimation="Slide">
-                                <Border x:Name="dropDownBorder"
-                                        Background="#2e2e2e"
-                                        BorderBrush="#404040"
-                                        BorderThickness="1"
-                                        MaxHeight="{TemplateBinding MaxDropDownHeight}"
-                                        MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}">
-                                    <ScrollViewer x:Name="DropDownScrollViewer">
-                                        <ItemsPresenter x:Name="ItemsPresenter"
-                                                        KeyboardNavigation.DirectionalNavigation="Contained"
-                                                        SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}"/>
-                                    </ScrollViewer>
-                                </Border>
-                            </Popup>
-                        </Grid>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="templateRoot" Property="BorderBrush" Value="#5c9fd6"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <Style TargetType="ComboBoxItem">
-            <Setter Property="Foreground" Value="{StaticResource Fg}"/>
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Padding" Value="8,4"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ComboBoxItem">
-                        <Border x:Name="Bd"
-                                Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                Padding="{TemplateBinding Padding}"
-                                SnapsToDevicePixels="true">
-                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
-                                              SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}"
-                                              TextBlock.Foreground="{TemplateBinding Foreground}"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsHighlighted" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#404040"/>
-                                <Setter Property="Foreground" Value="White"/>
-                            </Trigger>
-                            <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#5c9fd6"/>
-                                <Setter Property="Foreground" Value="White"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <Style TargetType="GridSplitter">
-            <Setter Property="Background" Value="#2e2e2e"/>
-            <Setter Property="Width" Value="3"/>
-            <Setter Property="HorizontalAlignment" Value="Stretch"/>
-            <Setter Property="ShowsPreview" Value="True"/>
-        </Style>
-
-        <Style TargetType="TabControl">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
-        </Style>
-
-        <Style TargetType="TabItem">
-            <Setter Property="Background" Value="#2e2e2e"/>
-            <Setter Property="Foreground" Value="{StaticResource Fg}"/>
-            <Setter Property="BorderBrush" Value="#404040"/>
-            <Setter Property="Padding" Value="12,6"/>
-            <Setter Property="Margin" Value="0,0,2,0"/>
-        </Style>
-    </Window.Resources>
-
-    <DockPanel LastChildFill="True" Margin="0">
         <!-- TOP BAR -->
-        <Border DockPanel.Dock="Top" Background="#262626" Padding="10,8"
-                BorderBrush="#404040" BorderThickness="0,0,0,1">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-
-                <!-- Controls -->
-                <StackPanel Orientation="Horizontal" Grid.Column="0">
-                    <Button x:Name="BtnConfig" Content="Config" Click="BtnConfig_Click" Margin="0,0,6,0"
-                            ToolTip="Открыть настройки"/>
-                    <Button x:Name="BtnStart" Content="Start" Click="BtnStart_Click" Padding="20,6"/>
-                    <Button x:Name="BtnStop"  Content="Stop"  Click="BtnStop_Click" IsEnabled="False" Padding="20,6"/>
-                    <Button x:Name="BtnReset" Content="Reset" Click="BtnReset_Click" Padding="20,6"
-                            ToolTip="Сбросить браузер (принудительно)"/>
-                </StackPanel>
-
-                <!-- Current operation -->
-                <TextBlock x:Name="CurrentOpText" Grid.Column="1" Foreground="{StaticResource FgDim}"
-                          VerticalAlignment="Center" Margin="0,0,12,0" FontStyle="Italic" FontSize="12"/>
-
-                <!-- Status badge -->
-                <Border x:Name="StatusBadge" Grid.Column="2" CornerRadius="3" Padding="10,5"
-                        Background="#2e2e2e" BorderBrush="#404040" BorderThickness="1"
-                        HorizontalAlignment="Right" VerticalAlignment="Center">
-                    <TextBlock x:Name="StatusText" Foreground="{StaticResource Fg}" FontSize="12"/>
-                </Border>
-            </Grid>
-        </Border>
-
-        <!-- MAIN: browser + panel -->
-        <Grid Margin="0">
+        <Grid Grid.Row="0" Padding="16,12" Background="{ThemeResource ProxmoxGray}"
+              BorderBrush="#555555" BorderThickness="0,0,0,1">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition MinWidth="640" Width="2*"/>
-                <ColumnDefinition Width="3"/>
-                <ColumnDefinition MinWidth="440" Width="440"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
-            <wv2:WebView2 x:Name="Browser" Grid.Column="0" DefaultBackgroundColor="#FF1E1E1E"/>
+            <!-- Controls -->
+            <StackPanel Orientation="Horizontal" Grid.Column="0" Spacing="8">
+                <Button x:Name="BtnConfig" Content="Config" Click="BtnConfig_Click"
+                        Style="{StaticResource ProxmoxButton}">
+                    <ToolTipService.ToolTip>
+                        <ToolTip Content="Открыть настройки"/>
+                    </ToolTipService.ToolTip>
+                </Button>
+                <Button x:Name="BtnStart" Content="Start (F5)" Click="BtnStart_Click" Style="{StaticResource ProxmoxAccentButton}"/>
+                <Button x:Name="BtnStop" Content="Stop (F6)" Click="BtnStop_Click" Style="{StaticResource ProxmoxButton}" IsEnabled="False"/>
+                <Button x:Name="BtnReset" Content="Reset (F7)" Click="BtnReset_Click" Style="{StaticResource ProxmoxButton}">
+                    <ToolTipService.ToolTip>
+                        <ToolTip Content="Сбросить браузер (принудительно)"/>
+                    </ToolTipService.ToolTip>
+                </Button>
+            </StackPanel>
 
-            <GridSplitter Grid.Column="1"/>
+            <!-- Current operation -->
+            <TextBlock x:Name="CurrentOpText" Grid.Column="1"
+                      VerticalAlignment="Center" Margin="0,0,16,0"
+                      FontStyle="Italic" FontSize="12" Opacity="0.6"/>
 
-            <Grid Grid.Column="2" Background="#1a1a1a">
+            <!-- Status badge -->
+            <Border x:Name="StatusBadge" Grid.Column="2" CornerRadius="4" Padding="12,6"
+                    Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                <TextBlock x:Name="StatusText" FontSize="12"/>
+            </Border>
+        </Grid>
+
+        <!-- MAIN: browser + panel -->
+        <Grid Grid.Row="1" Margin="0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition MinWidth="640" Width="2*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition x:Name="RightPanelColumn" MinWidth="400" Width="400"/>
+            </Grid.ColumnDefinitions>
+
+            <WebView2 x:Name="Browser" Grid.Column="0"/>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                <Border Width="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+                <Button x:Name="BtnTogglePanel" Content="▶" 
+                        Click="BtnTogglePanel_Click"
+                        VerticalAlignment="Center" Margin="-12,0,0,0"
+                        Width="24" Height="48" CornerRadius="4,0,0,4"
+                        Background="{ThemeResource ProxmoxGray}"
+                        BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                        BorderThickness="1,1,0,1"
+                        ToolTipService.ToolTip="Скрыть/показать панель"/>
+            </StackPanel>
+
+            <Grid Grid.Column="2">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*"/>
-                    <RowDefinition Height="3"/>
-                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
                 <!-- Queue panel -->
-                <Border Grid.Row="0" Background="#262626" Padding="10"
-                        BorderBrush="#404040" BorderThickness="0,0,0,1">
-                    <DockPanel>
-                        <StackPanel Orientation="Horizontal" DockPanel.Dock="Top" Margin="0,0,0,8">
-                            <TextBlock Text="VM Queue" Foreground="{StaticResource Fg}"
-                                     FontWeight="SemiBold" FontSize="13" Margin="0,0,12,0" VerticalAlignment="Center"/>
-                            <Button x:Name="BtnAdd"   Content="+ Add"   Click="BtnAdd_Click" Padding="10,4" Margin="0,0,6,0"/>
-                            <Button x:Name="BtnClear" Content="Clear" Click="BtnClear_Click" Padding="10,4" Margin="0"/>
-                        </StackPanel>
+                <Grid Grid.Row="0" Padding="16" Background="{ThemeResource ProxmoxGray}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
 
-                        <Grid DockPanel.Dock="Top" Margin="0,0,0,6">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="120"/>
-                                <ColumnDefinition Width="90"/>
-                                <ColumnDefinition Width="120"/>
-                                <ColumnDefinition Width="60"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Name" Foreground="{StaticResource FgDim}" FontSize="11" FontWeight="SemiBold"/>
-                            <TextBlock Grid.Column="1" Text="Storage" Foreground="{StaticResource FgDim}" FontSize="11" FontWeight="SemiBold"/>
-                            <TextBlock Grid.Column="2" Text="Format" Foreground="{StaticResource FgDim}" FontSize="11" FontWeight="SemiBold"/>
-                            <TextBlock Grid.Column="3" Text="Status" Foreground="{StaticResource FgDim}" FontSize="11" FontWeight="SemiBold"/>
-                        </Grid>
+                    <StackPanel Orientation="Horizontal" Grid.Row="0" Spacing="12" Margin="0,0,0,16">
+                        <TextBlock Text="VM Queue" FontWeight="SemiBold" FontSize="16" VerticalAlignment="Center"/>
+                        <Button x:Name="BtnAdd" Content="+ Add" Click="BtnAdd_Click" Style="{ThemeResource ProxmoxAccentButton}"/>
+                        <Button x:Name="BtnClear" Content="Clear" Click="BtnClear_Click"/>
+                    </StackPanel>
 
-                        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                            <ItemsControl x:Name="QueueList">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <StackPanel/>
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Grid Margin="0,3,0,3">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="120"/>
-                                                <ColumnDefinition Width="90"/>
-                                                <ColumnDefinition Width="120"/>
-                                                <ColumnDefinition Width="60"/>
-                                                <ColumnDefinition Width="Auto"/>
-                                            </Grid.ColumnDefinitions>
+                    <Grid Grid.Row="1" Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="140"/>
+                            <ColumnDefinition Width="110"/>
+                            <ColumnDefinition Width="60"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Name" FontSize="12" FontWeight="SemiBold" Opacity="0.6"/>
+                        <TextBlock Grid.Column="1" Text="Storage" FontSize="12" FontWeight="SemiBold" Opacity="0.6"/>
+                        <TextBlock Grid.Column="2" Text="Status" FontSize="12" FontWeight="SemiBold" Opacity="0.6"/>
+                    </Grid>
 
-                                            <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,4,0"
-                                                     VerticalContentAlignment="Center"/>
+                    <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                        <ItemsControl x:Name="QueueList">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Spacing="8"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="140"/>
+                                            <ColumnDefinition Width="110"/>
+                                            <ColumnDefinition Width="60"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
 
-                                            <ComboBox Grid.Column="1" Margin="0,0,4,0"
-                                                      ItemsSource="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=StorageOptions}"
-                                                      SelectedItem="{Binding Storage, UpdateSourceTrigger=PropertyChanged}"
-                                                      VerticalContentAlignment="Center"/>
+                                        <TextBox Text="{Binding Name, Mode=TwoWay}" Margin="0,0,4,0"/>
 
-                                            <ComboBox Grid.Column="2" Margin="0,0,4,0"
-                                                      ItemsSource="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=FormatOptions}"
-                                                      SelectedItem="{Binding Format, UpdateSourceTrigger=PropertyChanged}"
-                                                      VerticalContentAlignment="Center"/>
+                                        <ComboBox Grid.Column="1" Margin="0,0,4,0" Tag="Storage"
+                                                  SelectedItem="{Binding Storage, Mode=TwoWay}"
+                                                  Loaded="ComboBox_Loaded"/>
 
-                                            <TextBlock Grid.Column="3" Margin="0,0,4,0" VerticalAlignment="Center"
-                                                       HorizontalAlignment="Center" FontSize="14">
-                                                <TextBlock.Style>
-                                                    <Style TargetType="TextBlock">
-                                                        <Setter Property="Foreground" Value="{StaticResource FgDim}"/>
-                                                        <Setter Property="Text" Value="—"/>
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding IsCompleted}" Value="True">
-                                                                <Setter Property="Text" Value="✓"/>
-                                                                <Setter Property="Foreground" Value="#4caf50"/>
-                                                            </DataTrigger>
-                                                            <DataTrigger Binding="{Binding IsConfigured}" Value="True">
-                                                                <Setter Property="Text" Value="✓✓"/>
-                                                                <Setter Property="Foreground" Value="#4caf50"/>
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </TextBlock.Style>
-                                            </TextBlock>
+                                        <TextBlock Grid.Column="2" Margin="0,0,4,0" VerticalAlignment="Center"
+                                                   HorizontalAlignment="Center" FontSize="14"
+                                                   Text="{Binding StatusText}"
+                                                   Foreground="{Binding StatusColor}"/>
 
-                                            <Button Grid.Column="4" Content="×" Click="BtnRemoveRow_Click"
-                                                    Padding="6,2" Margin="0" FontSize="16"/>
-                                        </Grid>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </ScrollViewer>
-                    </DockPanel>
-                </Border>
+                                        <Button Grid.Column="3" Content="✕" Click="BtnRemoveRow_Click"
+                                                FontSize="10" Width="32" Height="32"
+                                                ToolTipService.ToolTip="Удалить из очереди"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
 
-                <GridSplitter Grid.Row="1" Height="3" HorizontalAlignment="Stretch"/>
+                <Border Grid.Row="1" Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+
+                <!-- Command panel (new) -->
+                <Grid Grid.Row="2" x:Name="CommandPanel" Padding="16,12" Background="{ThemeResource ProxmoxGray}"
+                      BorderBrush="#555555" BorderThickness="0,0,0,1" Visibility="Collapsed">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Column="0" Text="Command:" FontWeight="SemiBold"
+                               VerticalAlignment="Center" Margin="0,0,12,0"/>
+
+                    <TextBox Grid.Column="1" x:Name="CommandTextBox"
+                             IsReadOnly="True"
+                             FontFamily="Cascadia Mono, Consolas"
+                             FontSize="12"
+                             Margin="0,0,8,0"/>
+
+                    <Button Grid.Column="2" x:Name="BtnCopyCommand" Content="Copy"
+                            Click="BtnCopyCommand_Click"
+                            Style="{StaticResource ProxmoxButton}">
+                        <ToolTipService.ToolTip>
+                            <ToolTip Content="Скопировать команду в буфер обмена"/>
+                        </ToolTipService.ToolTip>
+                    </Button>
+                </Grid>
 
                 <!-- Log panel -->
-                <Border Grid.Row="2" Background="#262626" BorderThickness="0" Padding="0">
-                    <DockPanel>
-                        <Border Background="#2e2e2e" Padding="10,6" DockPanel.Dock="Top"
-                                BorderBrush="#404040" BorderThickness="0,0,0,1">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="Log" Foreground="{StaticResource Fg}" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center"/>
-                                <Button Grid.Column="1" x:Name="BtnCopyLog" Content="Copy" Click="BtnCopyLog_Click"
-                                        Margin="0" Padding="10,4" Background="#4caf50" BorderBrush="#66bb6a"
-                                        ToolTip="Скопировать весь лог в буфер обмена"/>
-                            </Grid>
-                        </Border>
+                <StackPanel Grid.Row="3" x:Name="LogPanel" Background="{ThemeResource ProxmoxGray}">
+                    <Grid Padding="16,12"
+                          Background="{ThemeResource ProxmoxGray}"
+                          BorderBrush="#555555" BorderThickness="0,1,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Log" FontWeight="SemiBold" FontSize="16" VerticalAlignment="Center"/>
+                        
+                        <Button Grid.Column="1" x:Name="BtnExpandLog" Content="&#xE740;" Click="BtnExpandLog_Click"
+                                FontFamily="Segoe MDL2 Assets" Margin="0,0,8,0">
+                            <ToolTipService.ToolTip>
+                                <ToolTip Content="Открыть лог в отдельном окне"/>
+                            </ToolTipService.ToolTip>
+                        </Button>
 
-                        <RichTextBox x:Name="LogBox"
-                                     IsReadOnly="True"
-                                     Background="#1a1a1a"
-                                     Foreground="#C8C8C8"
-                                     FontFamily="Consolas"
-                                     FontSize="12"
-                                     BorderThickness="0"
-                                     Padding="10"
-                                     VerticalScrollBarVisibility="Auto"
-                                     HorizontalScrollBarVisibility="Auto"
-                                     AcceptsReturn="True" />
-                    </DockPanel>
-                </Border>
+                        <Button Grid.Column="2" x:Name="BtnToggleLog" Content="&#xE70E;" Click="BtnToggleLog_Click"
+                                FontFamily="Segoe MDL2 Assets" Margin="0,0,8,0">
+                            <ToolTipService.ToolTip>
+                                <ToolTip Content="Свернуть/развернуть панель логов"/>
+                            </ToolTipService.ToolTip>
+                        </Button>
+
+                        <Button Grid.Column="3" x:Name="BtnCopyLog" Content="Copy" Click="BtnCopyLog_Click"
+                                Style="{ThemeResource ProxmoxButton}">
+                            <ToolTipService.ToolTip>
+                                <ToolTip Content="Скопировать весь лог в буфер обмена"/>
+                            </ToolTipService.ToolTip>
+                        </Button>
+                    </Grid>
+
+                    <ScrollViewer x:Name="LogScrollViewer" Height="300" VerticalScrollBarVisibility="Auto">
+                        <StackPanel x:Name="LogBox" Padding="16" Background="{ThemeResource ProxmoxDarkGray}"/>
+                    </ScrollViewer>
+                </StackPanel>
             </Grid>
         </Grid>
-    </DockPanel>
+    </Grid>
 </Window>

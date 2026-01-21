@@ -28,10 +28,24 @@ namespace VMGenerator.Services
             public string Patched { get; init; } = "";
             public List<Change> Changes { get; init; } = new();
             public string FirstArgsLine { get; init; } = "";
+            public string GeneratedIp { get; init; } = "";
         }
 
-        public async Task<PatchResult> BuildPatchedAsync(string cfg, int vmbr)
+        public async Task<PatchResult> BuildPatchedAsync(string cfg, string vmName)
         {
+            // 1. Extract number from Name (WoW8 -> 8)
+            int vmNumber = ExtractVmNumber(vmName);
+            int vmbr = vmNumber; // VMBR ID = Number from name
+
+            // 2. Calculate IP
+            // Subnet = 110 + (VMBR_ID - 1)
+            int subnet = 110 + (vmbr - 1);
+            int host = Random.Shared.Next(10, 91); // Range [10, 90]
+            string targetIp = $"192.168.{subnet}.{host}";
+            
+            // SMBIOS value to inject/replace
+            // We want to achieve: type=11,value=192.168.x.x
+            
             string argsBlock = await GrabFromEmbeddedAsync(GEN_EXES[0], CLIP_TIMEOUT_SEC);
             string newMac = await GrabFromEmbeddedAsync(GEN_EXES[1], CLIP_TIMEOUT_SEC);
             string newSn = await GrabFromEmbeddedAsync(GEN_EXES[2], CLIP_TIMEOUT_SEC);
@@ -39,8 +53,24 @@ namespace VMGenerator.Services
             string eol = cfg.Contains("\r\n") ? "\r\n" : "\n";
             argsBlock = argsBlock.Replace("\r\n", "\n").Replace("\n", eol).TrimEnd('\r', '\n');
 
-            int port = (Math.Abs(vmbr) % 100) + 10;
+            int port = (Math.Abs(vmNumber) % 100) + 10;
             argsBlock = RxArgsPort.Replace(argsBlock, $"0.0.0.0:{port:00}");
+
+            // 3. Inject/Update IP in argsBlock
+            // Regex to match: type=11,value=... up to a comma or single quote
+            var smbios11Regex = new Regex(@"(type=11,value=)([^,']*)");
+            
+            if (smbios11Regex.IsMatch(argsBlock))
+            {
+                // Replace existing value using ${1} to prevent $1 + 1... becoming $11
+                argsBlock = smbios11Regex.Replace(argsBlock, $"${{1}}{targetIp}");
+            }
+            else
+            {
+                // If type=11 is missing entirely, we append it.
+                // We assume argsBlock is a list of flags. We'll append a new -smbios flag.
+                argsBlock += $" -smbios 'type=11,value={targetIp}'";
+            }
 
             var lines = cfg.Replace("\r\n", "\n").Split('\n').ToList();
 
@@ -52,6 +82,8 @@ namespace VMGenerator.Services
 
             int iArgs = lines.FindIndex(l => l.TrimStart().StartsWith("args:"));
             if (iArgs >= 0) lines.RemoveAt(iArgs);
+            
+            // Insert new args
             int iBalloon = lines.FindIndex(l => l.TrimStart().StartsWith("balloon:"));
             if (iBalloon < 0) iBalloon = 0;
             lines.Insert(iBalloon, argsBlock);
@@ -84,7 +116,7 @@ namespace VMGenerator.Services
                     s = s.Substring(5).Trim();
                 return s;
             }
-            static string Abbrev(string s, int max = 110)
+            static string Abbrev(string s, int max = 600)
             {
                 s = (s ?? "").Trim();
                 if (s.Length <= max) return s;
@@ -92,20 +124,30 @@ namespace VMGenerator.Services
             }
 
             var changes = new List<Change>
-{
-    new Change("MAC (e1000)", oldMac, newMac),
-    new Change("Serial (sata0)", oldSn, newSn),
-    new Change("Bridge", string.IsNullOrEmpty(oldVmbr) ? "" : $"vmbr{oldVmbr}", $"vmbr{vmbr}"),
-    new Change("VNC port", oldPort, $"{port:00}"),
-    new Change("args", Abbrev(TrimArgs(oldArgsLine)), Abbrev(TrimArgs(argsBlock.Split(new[]{eol},StringSplitOptions.None)[0])))
-};
+            {
+                new Change("MAC (e1000)", oldMac, newMac),
+                new Change("Serial (sata0)", oldSn, newSn),
+                new Change("Bridge", string.IsNullOrEmpty(oldVmbr) ? "" : $"vmbr{oldVmbr}", $"vmbr{vmbr}"),
+                new Change("VNC port", oldPort, $"{port:00}"),
+                new Change("IP (SMBIOS)", "", targetIp),
+                new Change("args", Abbrev(TrimArgs(oldArgsLine)), Abbrev(TrimArgs(argsBlock.Split(new[]{eol},StringSplitOptions.None)[0])))
+            };
 
             return new PatchResult
             {
                 Patched = result,
                 Changes = changes,
-                FirstArgsLine = argsBlock.Split(new[] { eol }, StringSplitOptions.None)[0]
+                FirstArgsLine = argsBlock.Split(new[] { eol }, StringSplitOptions.None)[0],
+                GeneratedIp = targetIp
             };
+        }
+
+        private static int ExtractVmNumber(string name)
+        {
+            var match = Regex.Match(name ?? "", @"(\d+)$");
+            if (match.Success && int.TryParse(match.Groups[1].Value, out int n))
+                return n;
+            return 0; // Fallback
         }
 
         private static string ExtractFirst(IEnumerable<string> lines, Regex rx, int group)
@@ -127,7 +169,17 @@ namespace VMGenerator.Services
 
         private static string SafeClipGet()
         {
-            try { return System.Windows.Clipboard.ContainsText() ? System.Windows.Clipboard.GetText() : string.Empty; }
+            try
+            {
+                var dataPackage = Windows.ApplicationModel.DataTransfer.Clipboard.GetContent();
+                if (dataPackage.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text))
+                {
+                    var task = dataPackage.GetTextAsync().AsTask();
+                    task.Wait();
+                    return task.Result ?? string.Empty;
+                }
+                return string.Empty;
+            }
             catch { return string.Empty; }
         }
 

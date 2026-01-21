@@ -1,3 +1,4 @@
+using Microsoft.UI.Xaml.Media;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 
@@ -7,7 +8,7 @@ namespace VMGenerator.Models
     {
         private string _name = "";
         private string _storage = "data";
-        private string _format = "Raw disk image (raw)";
+        private string _format = "raw";
         private bool _isCompleted = false;
         private bool _isConfigured = false;
         private int? _vmId;
@@ -33,13 +34,45 @@ namespace VMGenerator.Models
         public bool IsCompleted
         {
             get => _isCompleted;
-            set { _isCompleted = value; OnPropertyChanged(); }
+            set
+            {
+                _isCompleted = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(StatusText));
+                OnPropertyChanged(nameof(StatusColor));
+            }
         }
 
         public bool IsConfigured
         {
             get => _isConfigured;
-            set { _isConfigured = value; OnPropertyChanged(); }
+            set
+            {
+                _isConfigured = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(StatusText));
+                OnPropertyChanged(nameof(StatusColor));
+            }
+        }
+
+        public string StatusText
+        {
+            get
+            {
+                if (IsConfigured) return "✓✓";
+                if (IsCompleted) return "✓";
+                return "—";
+            }
+        }
+
+        public Brush StatusColor
+        {
+            get
+            {
+                if (IsConfigured || IsCompleted)
+                    return new SolidColorBrush(Windows.UI.Color.FromArgb(255, 76, 175, 80));
+                return new SolidColorBrush(Windows.UI.Color.FromArgb(255, 139, 139, 139));
+            }
         }
 
         public int? VmId

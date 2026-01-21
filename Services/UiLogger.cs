@@ -1,63 +1,60 @@
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Documents;
+using Microsoft.UI.Xaml.Media;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Documents;
-using System.Windows.Media;
 
 namespace VMGenerator.Services
 {
     public sealed class UiLogger
     {
-        private readonly RichTextBox _box;
+        private readonly StackPanel _box;
         private readonly StringBuilder _fullLog = new StringBuilder();
 
-        private static readonly Brush FG = new SolidColorBrush(Color.FromRgb(220, 220, 220));
-        private static readonly Brush RED = new SolidColorBrush(Color.FromRgb(192, 57, 43));
-        private static readonly Brush GREEN = new SolidColorBrush(Color.FromRgb(39, 174, 96));
-        private static readonly Brush BLUE = new SolidColorBrush(Color.FromRgb(78, 161, 255));
-        private static readonly Brush YELLOW = new SolidColorBrush(Color.FromRgb(255, 208, 70));
-        private static readonly Brush CYAN = new SolidColorBrush(Color.FromRgb(0, 255, 255));
-        private static readonly Brush HDR_BG = new SolidColorBrush(Color.FromRgb(46, 46, 46));
-        private static readonly Brush GRID = new SolidColorBrush(Color.FromRgb(80, 80, 80));
-
-        public UiLogger(RichTextBox box)
+        public UiLogger(StackPanel box)
         {
             _box = box;
-            _box.Document ??= new FlowDocument();
-            _box.Document.PagePadding = new Thickness(0);
         }
 
         public string GetFullLog() => _fullLog.ToString();
 
-        private void AddParagraph(IEnumerable<Inline> inlines)
-        {
-            var p = new Paragraph { Margin = new Thickness(0, 0, 0, 4) };
-            foreach (var i in inlines) p.Inlines.Add(i);
-            _box.Document.Blocks.Add(p);
-            _box.ScrollToEnd();
-        }
-
-        private void Line(string prefix, string text, Brush color)
+        private void Line(string prefix, string text, Windows.UI.Color prefixColor, Windows.UI.Color textColor)
         {
             var timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
             var logLine = $"[{timestamp}] {prefix}{text}";
             _fullLog.AppendLine(logLine);
 
-            AddParagraph(new Inline[]
+            _box.DispatcherQueue.TryEnqueue(() =>
             {
-                new Run(prefix){ Foreground = YELLOW },
-                new Run(text){ Foreground = color }
+                var textBlock = new TextBlock
+                {
+                    FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Mono, Consolas"),
+                    FontSize = 12
+                };
+
+                textBlock.Inlines.Add(new Run
+                {
+                    Text = prefix,
+                    Foreground = new SolidColorBrush(prefixColor)
+                });
+
+                textBlock.Inlines.Add(new Run
+                {
+                    Text = text,
+                    Foreground = new SolidColorBrush(textColor)
+                });
+
+                _box.Children.Add(textBlock);
             });
         }
 
-        public void Info(string msg) => Line("[INFO] ", msg, FG);
-        public void Warn(string msg) => Line("[WARN] ", msg, YELLOW);
-        public void Error(string msg) => Line("[ERROR] ", msg, RED);
-        public void Step(string msg) => Line("> ", msg, BLUE);
-        public void Debug(string msg) => Line("[DEBUG] ", msg, CYAN);
+        public void Info(string msg) => Line("[INFO] ", msg, Windows.UI.Color.FromArgb(255, 255, 208, 70), Windows.UI.Color.FromArgb(255, 220, 220, 220));
+        public void Warn(string msg) => Line("[WARN] ", msg, Windows.UI.Color.FromArgb(255, 255, 208, 70), Windows.UI.Color.FromArgb(255, 255, 208, 70));
+        public void Error(string msg) => Line("[ERROR] ", msg, Windows.UI.Color.FromArgb(255, 255, 208, 70), Windows.UI.Color.FromArgb(255, 192, 57, 43));
+        public void Step(string msg) => Line("> ", msg, Windows.UI.Color.FromArgb(255, 255, 208, 70), Windows.UI.Color.FromArgb(255, 78, 161, 255));
+        public void Debug(string msg) => Line("[DEBUG] ", msg, Windows.UI.Color.FromArgb(255, 255, 208, 70), Windows.UI.Color.FromArgb(255, 0, 255, 255));
 
         public void Table(string title, IEnumerable<(string Field, string Value)> rows)
         {
@@ -71,41 +68,26 @@ namespace VMGenerator.Services
                 _fullLog.AppendLine($"  {row.Field}: {row.Value}");
             }
 
-            AddParagraph(new Inline[]{
-                new Run("• "){Foreground = YELLOW},
-                new Run(title){Foreground = FG, FontWeight = FontWeights.Bold}
-            });
-
-            double total = Math.Max(700, _box.ActualWidth - 32);
-            double wField = 180, wVal = total - wField - 2;
-
-            var table = new Table { CellSpacing = 0, Margin = new Thickness(0, 2, 0, 10) };
-            table.Columns.Add(new TableColumn { Width = new GridLength(wField) });
-            table.Columns.Add(new TableColumn { Width = new GridLength(wVal) });
-            var group = new TableRowGroup(); table.RowGroups.Add(group);
-
-            group.Rows.Add(Row(
-                Cell("Поле", FG, HDR_BG, bold: true, center: true, grid: true),
-                Cell("Значение", FG, HDR_BG, bold: true, center: true, grid: true)
-            ));
-            foreach (var r in list)
-                group.Rows.Add(Row(
-                    Cell(r.Field, FG, null, bold: true, grid: true),
-                    Cell(r.Value, GREEN, null, grid: true)
-                ));
-            _box.Document.Blocks.Add(table);
-            _box.ScrollToEnd();
-
-            static TableCell Cell(string text, Brush fg, Brush? bg, bool bold = false, bool center = false, bool grid = false)
+            _box.DispatcherQueue.TryEnqueue(() =>
             {
-                var para = new Paragraph(new Run(text)) { Margin = new Thickness(6), TextAlignment = center ? TextAlignment.Center : TextAlignment.Left, Foreground = fg };
-                if (bold) para.FontWeight = FontWeights.Bold;
-                var cell = new TableCell(para);
-                if (bg != null) cell.Background = bg;
-                if (grid) { cell.BorderBrush = GRID; cell.BorderThickness = new Thickness(0, 0, 1, 1); }
-                return cell;
-            }
-            static TableRow Row(params TableCell[] cells) { var tr = new TableRow(); foreach (var c in cells) tr.Cells.Add(c); return tr; }
+                var titleBlock = new TextBlock
+                {
+                    FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Mono, Consolas"),
+                    FontSize = 12,
+                    FontWeight = Microsoft.UI.Text.FontWeights.Bold
+                };
+                titleBlock.Inlines.Add(new Run { Text = "• ", Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 208, 70)) });
+                titleBlock.Inlines.Add(new Run { Text = title, Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 220, 220, 220)) });
+                _box.Children.Add(titleBlock);
+
+                foreach (var row in list)
+                {
+                    var rowBlock = new TextBlock { FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Mono, Consolas"), FontSize = 12 };
+                    rowBlock.Inlines.Add(new Run { Text = $"  {row.Field}: ", Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 220, 220, 220)), FontWeight = Microsoft.UI.Text.FontWeights.Bold });
+                    rowBlock.Inlines.Add(new Run { Text = row.Value, Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 39, 174, 96)) });
+                    _box.Children.Add(rowBlock);
+                }
+            });
         }
 
         public void DiffTable(string title, IEnumerable<Change> changes)
@@ -120,68 +102,28 @@ namespace VMGenerator.Services
                 _fullLog.AppendLine($"  {item.Field}: {item.Old} → {item.New}");
             }
 
-            AddParagraph(new Inline[]
+            _box.DispatcherQueue.TryEnqueue(() =>
             {
-                new Run("• "){Foreground = YELLOW},
-                new Run(title){Foreground = FG, FontWeight = FontWeights.Bold}
-            });
-
-            double total = Math.Max(600, _box.ActualWidth - 32);
-            double wField = 140;
-            double wValue = (total - wField - 2) / 2;
-
-            var table = new Table { CellSpacing = 0, Margin = new Thickness(0, 2, 0, 10) };
-            table.Columns.Add(new TableColumn { Width = new GridLength(wField) });
-            table.Columns.Add(new TableColumn { Width = new GridLength(wValue) });
-            table.Columns.Add(new TableColumn { Width = new GridLength(wValue) });
-
-            var group = new TableRowGroup();
-            table.RowGroups.Add(group);
-
-            group.Rows.Add(Row(
-                Cell("Поле", FG, HDR_BG, bold: true, center: true, grid: true),
-                Cell("Было", FG, HDR_BG, bold: true, center: true, grid: true),
-                Cell("Стало", FG, HDR_BG, bold: true, center: true, grid: true)
-            ));
-
-            foreach (var c in items)
-            {
-                group.Rows.Add(Row(
-                    Cell(c.Field ?? "", FG, null, bold: true, grid: true),
-                    Cell(string.IsNullOrEmpty(c.Old) ? "—" : c.Old, RED, null, grid: true),
-                    Cell(string.IsNullOrEmpty(c.New) ? "—" : c.New, GREEN, null, grid: true)
-                ));
-            }
-
-            _box.Document.Blocks.Add(table);
-            _box.ScrollToEnd();
-
-            static TableCell Cell(string text, Brush fg, Brush? bg, bool bold = false, bool center = false, bool grid = false)
-            {
-                var para = new Paragraph(new Run(text))
+                var titleBlock = new TextBlock
                 {
-                    Margin = new Thickness(6),
-                    TextAlignment = center ? TextAlignment.Center : TextAlignment.Left
+                    FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Mono, Consolas"),
+                    FontSize = 12,
+                    FontWeight = Microsoft.UI.Text.FontWeights.Bold
                 };
-                para.Foreground = fg;
-                if (bold) para.FontWeight = FontWeights.Bold;
+                titleBlock.Inlines.Add(new Run { Text = "• ", Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 208, 70)) });
+                titleBlock.Inlines.Add(new Run { Text = title, Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 220, 220, 220)) });
+                _box.Children.Add(titleBlock);
 
-                var cell = new TableCell(para);
-                if (bg != null) cell.Background = bg;
-                if (grid)
+                foreach (var c in items)
                 {
-                    cell.BorderBrush = GRID;
-                    cell.BorderThickness = new Thickness(0, 0, 1, 1);
+                    var rowBlock = new TextBlock { FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Mono, Consolas"), FontSize = 12 };
+                    rowBlock.Inlines.Add(new Run { Text = $"  {c.Field ?? ""}: ", Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 220, 220, 220)), FontWeight = Microsoft.UI.Text.FontWeights.Bold });
+                    rowBlock.Inlines.Add(new Run { Text = string.IsNullOrEmpty(c.Old) ? "—" : c.Old, Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 192, 57, 43)) });
+                    rowBlock.Inlines.Add(new Run { Text = " → ", Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 220, 220, 220)) });
+                    rowBlock.Inlines.Add(new Run { Text = string.IsNullOrEmpty(c.New) ? "—" : c.New, Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 39, 174, 96)) });
+                    _box.Children.Add(rowBlock);
                 }
-                return cell;
-            }
-
-            static TableRow Row(params TableCell[] cells)
-            {
-                var r = new TableRow();
-                foreach (var c in cells) r.Cells.Add(c);
-                return r;
-            }
+            });
         }
     }
 

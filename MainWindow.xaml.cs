@@ -1,28 +1,33 @@
-﻿using Microsoft.Web.WebView2.Core;
-using Microsoft.Web.WebView2.Wpf;
+﻿using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.Web.WebView2.Core;
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Input;
-using System.Windows.Media;
 using VMGenerator.Models;
 using VMGenerator.Services;
+using Windows.System;
 
 namespace VMGenerator
 {
-    public partial class MainWindow : Window
+    public sealed partial class MainWindow : Window
     {
         private readonly UiLogger _log;
         private readonly ProxmoxAutomation _proxmox;
         private readonly TinyFMAutomation _tinyFM;
         private readonly Patcher _patcher;
+        private readonly LocalConfigUpdater _noMachineUpdater;
         private AppConfig _config;
         private CancellationTokenSource? _cts;
+        private readonly DispatcherTimer _scanTimer = new DispatcherTimer();
+        private HashSet<int> _usedIds = new();
+        private HashSet<string> _usedNames = new();
 
         public ObservableCollection<CloneItem> Queue { get; } = new();
         public string[] StorageOptions { get; private set; } = Array.Empty<string>();
@@ -47,11 +52,40 @@ namespace VMGenerator
             _proxmox = new ProxmoxAutomation(_log);
             _tinyFM = new TinyFMAutomation(_log);
             _patcher = new Patcher();
+            _noMachineUpdater = new LocalConfigUpdater(_log);
 
             LoadConfig();
             InitializeQueue();
 
             QueueList.ItemsSource = Queue;
+
+            // Maximize window on startup
+            var hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hWnd);
+            var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(windowId);
+            if (appWindow != null)
+            {
+                var presenter = appWindow.Presenter as Microsoft.UI.Windowing.OverlappedPresenter;
+                if (presenter != null)
+                {
+                    presenter.Maximize();
+                }
+            }
+        }
+
+        private void ComboBox_Loaded(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+        {
+            if (sender is ComboBox combo)
+            {
+                if (combo.Tag?.ToString() == "Storage")
+                {
+                    combo.ItemsSource = StorageOptions;
+                }
+                else if (combo.Tag?.ToString() == "Format")
+                {
+                    combo.ItemsSource = FormatOptions;
+                }
+            }
         }
 
         private void LoadConfig()
@@ -71,27 +105,27 @@ namespace VMGenerator
 
         private void InitializeQueue()
         {
-            Queue.Add(new CloneItem
-            {
-                Name = "WoW",
-                Storage = _config.Storage.Default,
-                Format = _config.Format.Default
-            });
+            // Queue is initially empty
         }
 
-        private async void Window_Loaded(object sender, RoutedEventArgs e)
+        private async void Window_Loaded(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
         {
             try
             {
                 Status("Инициализация WebView2…", UiState.Working);
 
-                var env = await CoreWebView2Environment.CreateAsync(
-                    userDataFolder: null,
-                    browserExecutableFolder: null,
-                    options: new CoreWebView2EnvironmentOptions("--ignore-certificate-errors"));
-
+                var env = await CoreWebView2Environment.CreateAsync();
                 await Browser.EnsureCoreWebView2Async(env);
+
+                // Игнорируем SSL ошибки через настройки WebView2
+                Browser.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
+
                 Status("Готово", UiState.Ready);
+
+                // Запускаем таймер сканирования
+                _scanTimer.Interval = TimeSpan.FromSeconds(5);
+                _scanTimer.Tick += async (s, args) => await RefreshVmDataAsync();
+                _scanTimer.Start();
 
                 // Автоматический логин в Proxmox при запуске
                 await AutoConnectToProxmoxAsync();
@@ -102,7 +136,7 @@ namespace VMGenerator
             }
         }
 
-        private async Task AutoConnectToProxmoxAsync()
+        private async Task AutoConnectToProxmoxAsync(string? targetUrl = null)
         {
             try
             {
@@ -111,6 +145,12 @@ namespace VMGenerator
                 var cts = new CancellationTokenSource();
                 await _proxmox.ConnectAndPrepareAsync(Browser, _config.Proxmox.Url,
                     _config.Proxmox.Username, _config.Proxmox.Password, cts.Token);
+
+                if (!string.IsNullOrEmpty(targetUrl))
+                {
+                    Status("Переход к целевой странице...", UiState.Working);
+                    Browser.CoreWebView2.Navigate(targetUrl);
+                }
 
                 Status("Proxmox подключён", UiState.Success);
             }
@@ -121,10 +161,12 @@ namespace VMGenerator
             }
         }
 
-        private void BtnConfig_Click(object sender, RoutedEventArgs e)
+        private async void BtnConfig_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
         {
             var configWindow = new ConfigWindow(_config);
-            if (configWindow.ShowDialog() == true)
+            configWindow.XamlRoot = this.Content.XamlRoot;
+            var result = await configWindow.ShowAsync();
+            if (result == ContentDialogResult.Primary)
             {
                 _config = configWindow.Config;
                 _config.Save();
@@ -140,7 +182,7 @@ namespace VMGenerator
             }
         }
 
-        private async void BtnStart_Click(object sender, RoutedEventArgs e)
+        private async void BtnStart_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
         {
             if (_cts != null) return;
 
@@ -189,9 +231,6 @@ namespace VMGenerator
                 BtnStop.IsEnabled = false;
                 BtnAdd.IsEnabled = true;
                 CurrentOpText.Text = "";
-
-                // Автоматический сброс браузера после завершения работы
-                _ = ResetBrowserAsync();
             }
         }
 
@@ -353,12 +392,21 @@ namespace VMGenerator
                         throw new Exception($"Не удалось прочитать конфиг VM {vmId} после {attempt} попыток");
                     }
 
-                    Status($"VM {vmId}: патчу (vmbr={vmbr})…", UiState.Working);
-                    var pr = await _patcher.BuildPatchedAsync(cfg, vmbr);
+                    Status($"VM {vmId}: патчу (Name={item.Name})…", UiState.Working);
+                    
+                    // Обновленная логика патчера: передаем имя для генерации IP
+                    var pr = await _patcher.BuildPatchedAsync(cfg, item.Name);
 
+                    _log.Info($"Сгенерирован IP: {pr.GeneratedIp}");
                     _log.DiffTable($"VM {vmId}", pr.Changes);
 
                     await _tinyFM.WriteAndSaveConfigAsync(Browser, vmId, pr.Patched, _cts.Token);
+
+                    // Обновляем локальный конфиг NoMachine
+                    if (!string.IsNullOrEmpty(pr.GeneratedIp))
+                    {
+                         await _noMachineUpdater.UpdateNoMachineConfigAsync(_config.NoMachine.ConfigPath, item.Name, pr.GeneratedIp);
+                    }
 
                     item.IsConfigured = true;
                     Status($"VM {vmId}: сохранено", UiState.Success);
@@ -383,9 +431,57 @@ namespace VMGenerator
 
             await Task.Delay(5000, _cts.Token); // Увеличенная пауза между этапами
             await ProcessConfigureOnlyAsync();
+
+            if (_cts.Token.IsCancellationRequested) return;
+
+            // Генерируем команду start_and_key
+            var configuredVms = Queue.Where(x => x.IsConfigured && x.VmId.HasValue).ToList();
+            if (configuredVms.Any())
+            {
+                var vmIds = string.Join(" ", configuredVms.Select(x => x.VmId.Value));
+                var command = $"./start_and_key {vmIds}";
+
+                // Показываем команду в UI
+                ShowCommand(command);
+
+                try
+                {
+                    await Task.Delay(2000, _cts.Token); // Пауза перед открытием Shell
+
+                    // Возвращаемся в Proxmox (после TinyFM мы остаемся в TinyFM интерфейсе)
+                    Status("Открытие Shell...", UiState.Working);
+                    CurrentOpText.Text = "Сброс сессии и открытие Shell...";
+
+                    // Формируем URL к Shell в Proxmox (node h1)
+                    var proxmoxUri = new Uri(_config.Proxmox.Url);
+                    var shellUrl = $"{proxmoxUri.Scheme}://{proxmoxUri.Host}:{proxmoxUri.Port}/#v1:0:=node%2Fh1:4:=jsconsole:=contentIso:::8::";
+
+                    _log.Step($"Ресет и открытие Shell: {shellUrl}");
+                    
+                    // Полный сброс сессии и переход к консоли
+                    await ResetBrowserAsync(shellUrl);
+
+                    Status("✓ Shell открыт", UiState.Success);
+                    _log.Info($"✓ Shell открыт. Вставьте и выполните команду: {command}");
+                }
+                catch (Exception ex)
+                {
+                    _log.Warn($"Ошибка открытия Shell: {ex.Message}");
+                    _log.Info($"Скопируйте команду вручную: {command}");
+                }
+            }
         }
 
-        private void BtnStop_Click(object sender, RoutedEventArgs e)
+        private void ShowCommand(string command)
+        {
+            CommandTextBox.DispatcherQueue.TryEnqueue(() =>
+            {
+                CommandTextBox.Text = command;
+                CommandPanel.Visibility = Visibility.Visible;
+            });
+        }
+
+        private void BtnStop_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
         {
             _cts?.Cancel();
         }
@@ -395,92 +491,142 @@ namespace VMGenerator
         private void Status(string text, UiState state)
         {
             StatusText.Text = text;
-            string bg = state switch
+            var color = state switch
             {
-                UiState.Working => "#2F5C9B",
-                UiState.Success => "#2E7D32",
-                UiState.Error => "#8B2F2F",
-                _ => "#444444"
+                UiState.Working => Windows.UI.Color.FromArgb(255, 47, 92, 155),
+                UiState.Success => Windows.UI.Color.FromArgb(255, 46, 125, 50),
+                UiState.Error => Windows.UI.Color.FromArgb(255, 139, 47, 47),
+                _ => Windows.UI.Color.FromArgb(255, 68, 68, 68)
             };
-            StatusBadge.Background = (SolidColorBrush)new BrushConverter().ConvertFromString(bg)!;
+            StatusBadge.Background = new SolidColorBrush(color);
         }
 
-        private void BtnAdd_Click(object sender, RoutedEventArgs e)
+        private async void BtnAdd_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
         {
+            // Обновим данные перед добавлением для максимальной точности
+            await RefreshVmDataAsync();
+            
             string newName = GenerateNextVmName();
             Queue.Add(new CloneItem
             {
                 Name = newName,
                 Storage = _config.Storage.Default,
-                Format = _config.Format.Default
+                Format = "raw"
             });
         }
 
         private string GenerateNextVmName()
         {
-            if (!Queue.Any())
-                return "WoW";
-
-            // Ищем все имена с паттерном "prefix" + число
-            var existingNames = Queue.Select(x => x.Name).Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
-
-            string basePattern = "";
-            int maxNumber = 0;
-
-            foreach (var name in existingNames)
+            // Учитываем также имена, которые уже в очереди
+            var queueNames = Queue.Select(x => x.Name).Where(x => !string.IsNullOrWhiteSpace(x)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            
+            string basePattern = "WoW";
+            int i = 1;
+            while (true)
             {
-                // Пытаемся найти паттерн: текст + число в конце
-                var match = System.Text.RegularExpressions.Regex.Match(name, @"^(.+?)(\d+)$");
-                if (match.Success)
-                {
-                    string prefix = match.Groups[1].Value;
-                    int number = int.Parse(match.Groups[2].Value);
+                int candidateId = 100 + i;
+                string candidateName = $"{basePattern}{i}";
 
-                    if (number > maxNumber)
-                    {
-                        basePattern = prefix;
-                        maxNumber = number;
-                    }
-                }
-                else
+                bool idTaken = _usedIds.Contains(candidateId);
+                bool nameTaken = _usedNames.Contains(candidateName) || queueNames.Contains(candidateName);
+
+                if (_config.DebugMode)
                 {
-                    // Имя без числа в конце - используем как базу
-                    if (string.IsNullOrEmpty(basePattern))
-                        basePattern = name;
+                    _log.Debug($"Check {candidateName} (ID {candidateId}): IdTaken={idTaken}, NameTaken={nameTaken}");
                 }
+
+                // Если ID свободен И Имя свободно - берем
+                if (!idTaken && !nameTaken)
+                {
+                    return candidateName;
+                }
+                i++;
             }
-
-            // Если не нашли числовой паттерн, создаем на основе последнего имени
-            if (string.IsNullOrEmpty(basePattern))
-            {
-                var lastName = existingNames.LastOrDefault();
-                if (!string.IsNullOrEmpty(lastName))
-                {
-                    basePattern = lastName;
-                    maxNumber = 0;
-                }
-                else
-                {
-                    basePattern = "WoW";
-                    maxNumber = 0;
-                }
-            }
-
-            return basePattern + (maxNumber + 1);
         }
 
-        private void BtnRemoveRow_Click(object sender, RoutedEventArgs e)
+        private async Task RefreshVmDataAsync()
         {
-            if ((sender as FrameworkElement)?.DataContext is CloneItem item)
+            if (Browser?.CoreWebView2 == null) return;
+
+            try
+            {
+                string json = await Browser.ExecuteScriptAsync(@"
+(() => {
+  try {
+    const nodes = Array.from(document.querySelectorAll('.x-tree-node-text'));
+    const items = [];
+    const debug = [];
+    
+    for (const node of nodes) {
+      const text = (node.innerText || node.textContent || '').trim();
+      
+      const match = text.match(/(\d+)[\s\u00A0]*\((.+?)\)/);
+
+      if (match) {
+        // Use PascalCase for C# compatibility
+        items.push({ Id: parseInt(match[1]), Name: match[2].trim() });
+        debug.push(`[MATCH] ${text} -> ID:${match[1]} Name:${match[2]}`);
+      } else {
+        debug.push(`[FAIL] ${text}`);
+      }
+    }
+    
+    return JSON.stringify({ items: items, debug: debug }); 
+  } catch(e) { return JSON.stringify({ error: e.toString() }); }
+})();");
+                
+                var root = JsonDocument.Parse(FromJs(json)).RootElement;
+                
+                if (root.TryGetProperty("error", out var err))
+                {
+                    _log.Error($"Scan JS Error: {err.GetString()}");
+                    return;
+                }
+
+                if (root.TryGetProperty("debug", out var debugArr))
+                {
+                    if (_config.DebugMode)
+                    {
+                         var debugText = string.Join("\n", debugArr.EnumerateArray().Select(x => x.GetString()));
+                         _log.Debug("Tree Scan Report:\n" + debugText);
+                    }
+                }
+
+                if (root.TryGetProperty("items", out var itemsJson))
+                {
+                    var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                    var items = JsonSerializer.Deserialize<List<VmInfo>>(itemsJson.GetRawText(), options);
+                    
+                    if (items != null)
+                    {
+                        _usedIds = new HashSet<int>(items.Select(x => x.Id));
+                        _usedNames = new HashSet<string>(items.Select(x => x.Name), StringComparer.OrdinalIgnoreCase);
+                        
+                        if (_config.DebugMode)
+                             _log.Debug($"Scan updated: {_usedIds.Count} VMs found.");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.Warn($"Scan Error: {ex.Message}");
+            }
+        }
+
+        private class VmInfo { public int Id { get; set; } public string Name { get; set; } = ""; }
+
+        private void BtnRemoveRow_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+        {
+            if ((sender as Microsoft.UI.Xaml.FrameworkElement)?.DataContext is CloneItem item)
                 Queue.Remove(item);
         }
 
-        private void BtnClear_Click(object sender, RoutedEventArgs e)
+        private void BtnClear_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
         {
             Queue.Clear();
         }
 
-        private async Task ResetBrowserAsync()
+        private async Task ResetBrowserAsync(string? targetUrl = null)
         {
             try
             {
@@ -509,7 +655,7 @@ namespace VMGenerator
                 }
 
                 // Переподключаемся к Proxmox
-                await AutoConnectToProxmoxAsync();
+                await AutoConnectToProxmoxAsync(targetUrl);
             }
             catch (Exception ex)
             {
@@ -518,12 +664,12 @@ namespace VMGenerator
             }
         }
 
-        private async void BtnReset_Click(object sender, RoutedEventArgs e)
+        private async void BtnReset_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
         {
             await ResetBrowserAsync();
         }
 
-        private void BtnCopyLog_Click(object sender, RoutedEventArgs e)
+        private void BtnCopyLog_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
         {
             try
             {
@@ -534,7 +680,9 @@ namespace VMGenerator
                     return;
                 }
 
-                Clipboard.SetText(fullLog);
+                var dataPackage = new Windows.ApplicationModel.DataTransfer.DataPackage();
+                dataPackage.SetText(fullLog);
+                Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dataPackage);
                 _log.Info($"✓ Лог скопирован в буфер обмена ({fullLog.Length} символов)");
             }
             catch (Exception ex)
@@ -543,36 +691,160 @@ namespace VMGenerator
             }
         }
 
-        private void Window_KeyDown(object sender, KeyEventArgs e)
+        private void BtnCopyCommand_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
         {
+            try
+            {
+                var command = CommandTextBox.Text;
+                if (string.IsNullOrEmpty(command))
+                {
+                    _log.Warn("Команда пуста, нечего копировать.");
+                    return;
+                }
+
+                var dataPackage = new Windows.ApplicationModel.DataTransfer.DataPackage();
+                dataPackage.SetText(command);
+                Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dataPackage);
+                _log.Info($"✓ Команда скопирована в буфер обмена: {command}");
+            }
+            catch (Exception ex)
+            {
+                _log.Error($"Ошибка копирования команды: {ex.Message}");
+            }
+        }
+
+        private void BtnTogglePanel_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+        {
+            if (RightPanelColumn.Width.Value > 0)
+            {
+                // Скрываем
+                RightPanelColumn.Width = new GridLength(0);
+                RightPanelColumn.MinWidth = 0;
+                BtnTogglePanel.Content = "◀";
+            }
+            else
+            {
+                // Показываем
+                RightPanelColumn.Width = new GridLength(400);
+                RightPanelColumn.MinWidth = 400;
+                BtnTogglePanel.Content = "▶";
+            }
+        }
+
+        private async void BtnExpandLog_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+        {
+            var dialog = new ContentDialog
+            {
+                Title = "Full Log",
+                CloseButtonText = "Close",
+                XamlRoot = this.Content.XamlRoot,
+                Style = Application.Current.Resources["DefaultContentDialogStyle"] as Style
+            };
+
+            // Создаем новый StackPanel для клонирования логов
+            var newLogBox = new StackPanel 
+            { 
+                Padding = new Thickness(16), 
+                Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 43, 43, 43)) 
+            };
+
+            foreach (var child in LogBox.Children)
+            {
+                if (child is TextBlock tb)
+                {
+                    var newTb = new TextBlock
+                    {
+                        FontFamily = tb.FontFamily,
+                        FontSize = tb.FontSize,
+                        FontWeight = tb.FontWeight,
+                        Margin = tb.Margin,
+                        TextWrapping = TextWrapping.Wrap
+                    };
+
+                    foreach (var inline in tb.Inlines)
+                    {
+                        if (inline is Microsoft.UI.Xaml.Documents.Run run)
+                        {
+                            newTb.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run
+                            {
+                                Text = run.Text,
+                                Foreground = run.Foreground,
+                                FontWeight = run.FontWeight,
+                                FontStyle = run.FontStyle
+                            });
+                        }
+                    }
+                    newLogBox.Children.Add(newTb);
+                }
+            }
+
+            var scroll = new ScrollViewer 
+            { 
+                Content = newLogBox,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Height = 700,
+                Width = 1200,
+                MinWidth = 800,
+                MinHeight = 500
+            };
+
+            dialog.Content = scroll;
+            dialog.Resources["ContentDialogMaxWidth"] = 2000;
+            
+            await dialog.ShowAsync();
+        }
+
+        private void BtnToggleLog_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+        {
+            var isExpanded = LogScrollViewer.Visibility == Visibility.Visible;
+
+            if (isExpanded)
+            {
+                // Collapse the log panel
+                LogScrollViewer.Visibility = Visibility.Collapsed;
+                BtnToggleLog.Content = "\uE70D"; // ChevronUp icon - shows panel is collapsed, click to expand
+            }
+            else
+            {
+                // Expand the log panel
+                LogScrollViewer.Visibility = Visibility.Visible;
+                BtnToggleLog.Content = "\uE70E"; // ChevronDown icon - shows panel is expanded, click to collapse
+            }
+        }
+
+        private void Window_KeyDown(object sender, KeyRoutedEventArgs e)
+        {
+            var ctrl = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
             // F-key hotkeys
-            if (e.Key == Key.F5)
+            if (e.Key == VirtualKey.F5)
             {
-                BtnStart_Click(this, new RoutedEventArgs());
+                BtnStart_Click(this, new Microsoft.UI.Xaml.RoutedEventArgs());
                 e.Handled = true;
             }
-            else if (e.Key == Key.F6)
+            else if (e.Key == VirtualKey.F6)
             {
-                BtnStop_Click(this, new RoutedEventArgs());
+                BtnStop_Click(this, new Microsoft.UI.Xaml.RoutedEventArgs());
                 e.Handled = true;
             }
-            else if (e.Key == Key.F7)
+            else if (e.Key == VirtualKey.F7)
             {
-                BtnReset_Click(this, new RoutedEventArgs());
+                BtnReset_Click(this, new Microsoft.UI.Xaml.RoutedEventArgs());
                 e.Handled = true;
             }
 
             // Ctrl+key hotkeys
-            if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.S)
-                BtnStart_Click(this, new RoutedEventArgs());
-            if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.E)
-                BtnStop_Click(this, new RoutedEventArgs());
-            if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.N)
-                BtnAdd_Click(this, new RoutedEventArgs());
-            if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.R)
-                BtnReset_Click(this, new RoutedEventArgs());
-            if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.L)
-                BtnCopyLog_Click(this, new RoutedEventArgs());
+            if (ctrl && e.Key == VirtualKey.S)
+                BtnStart_Click(this, new Microsoft.UI.Xaml.RoutedEventArgs());
+            if (ctrl && e.Key == VirtualKey.E)
+                BtnStop_Click(this, new Microsoft.UI.Xaml.RoutedEventArgs());
+            if (ctrl && e.Key == VirtualKey.N)
+                BtnAdd_Click(this, new Microsoft.UI.Xaml.RoutedEventArgs());
+            if (ctrl && e.Key == VirtualKey.R)
+                BtnReset_Click(this, new Microsoft.UI.Xaml.RoutedEventArgs());
+            if (ctrl && e.Key == VirtualKey.L)
+                BtnCopyLog_Click(this, new Microsoft.UI.Xaml.RoutedEventArgs());
         }
     }
 }

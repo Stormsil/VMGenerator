@@ -11,6 +11,7 @@ namespace VMGenerator.Models
         public StorageConfig Storage { get; set; } = new();
         public FormatConfig Format { get; set; } = new();
         public TemplateConfig Template { get; set; } = new();
+        public NoMachineConfig NoMachine { get; set; } = new();
         public bool DebugMode { get; set; } = false;
 
         private static string GetConfigPath()
@@ -118,5 +119,10 @@ namespace VMGenerator.Models
     {
         public int VmId { get; set; } = 100;
         public string Name { get; set; } = "VM 100";
+    }
+
+    public class NoMachineConfig
+    {
+        public string ConfigPath { get; set; } = @"C:\Users\warfr\OneDrive\Документы\NoMachine\";
     }
 }

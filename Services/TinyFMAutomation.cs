@@ -1,5 +1,5 @@
+using Microsoft.UI.Xaml.Controls;
 using Microsoft.Web.WebView2.Core;
-using Microsoft.Web.WebView2.Wpf;
 using System;
 using System.Text.Json;
 using System.Threading;
@@ -53,6 +53,20 @@ namespace VMGenerator.Services
                                           CancellationToken ct, bool quickIfAlready = false)
         {
             await EnsureCoreAsync(web);
+
+            // FORCEFULLY kill "Leave site?" dialogs by overriding addEventListener for 'beforeunload'
+            string antiDialogScript = @"
+                window.onbeforeunload = null;
+                const originalAddEventListener = window.addEventListener;
+                window.addEventListener = function(type, listener, options) {
+                    if (type === 'beforeunload') {
+                        console.log('Blocked beforeunload listener attempt');
+                        return;
+                    }
+                    return originalAddEventListener.call(window, type, listener, options);
+                };
+            ";
+            await web.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(antiDialogScript);
 
             if (quickIfAlready &&
                 web.Source != null &&
@@ -142,6 +156,10 @@ namespace VMGenerator.Services
             else if (res == "no_editor") _log.Error("Не найден textarea редактора.");
 
             await Task.Delay(1200, ct);
+            
+            // Forcefully remove the beforeunload listener before navigating
+            await web.ExecuteScriptAsync("window.onbeforeunload = null;");
+            
             await web.ExecuteScriptAsync("location.search='?p=qemu'");
             await WaitForAsync(web, "location.search.includes('?p=qemu')", 10, ct);
             _log.Info("Вернулся в /qemu.");
